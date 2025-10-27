@@ -3,3 +3,5 @@ Texas Hold'em is a popular poker game played in all casinos. For our 4444 class 
 
 ## Team Members
 Anthony, Berend, Daniel, Dina, Eby, Zolfivox
+
+![unnamed](https://github.com/user-attachments/assets/fab873ac-b36c-495e-88cb-53aca8cb5ca3)
