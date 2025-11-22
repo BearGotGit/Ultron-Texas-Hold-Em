@@ -84,16 +84,17 @@ pip install -r requirements.txt
 ---
 
 ## Running the Project
+* Note, might migrate this to the module way later, but right now these work:
 
 1️⃣ Generate Training Data
 Monte Carlo simulation:
-python simulation/generate_dataset.py
+`python simulation/generate_dataset.py`
 
 2️⃣ Train the Model
-python training/train_model.py
+`python training/train_model.py`
 
 3️⃣ Evaluate Model Performance
-python training/evaluate_model.py
+`python training/evaluate_model.py`
 
 4️⃣ Run the Poker Agent
-python gameplay/ai_agent.py
+`python gameplay/ai_agent.py`
