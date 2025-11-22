@@ -4,14 +4,17 @@ Texas Hold'em is a popular poker game played in all casinos.
 For our **4444 class project**, our group is building a **competitive Machine Learning poker bot** capable of playing Texas Hold'em at a high level — and hopefully better than you or I!
 
 ## 👥 Team Members
+
 Anthony • Berend • Daniel • Dina • Eby • Aaron
 
 ![unnamed](https://github.com/user-attachments/assets/fab873ac-b36c-495e-88cb-53aca8cb5ca3)
 
 ---
 
-# 🎯 Project Goal
+## 🎯 Project Goal
+
 Build an AI agent that can:
+
 - Understand game state  
 - Evaluate hand strength & equity  
 - Predict opponent ranges  
@@ -22,8 +25,9 @@ Our approach uses **Monte Carlo simulation**, **supervised learning**, and **neu
 
 ---
 
-# Project Structure
-```
+## Project Structure
+
+```bash
 Ultron-Texas-Hold-Em/
 │
 ├── data/
@@ -64,7 +68,8 @@ Ultron-Texas-Hold-Em/
 └── README.md
 ```
 
-# Running the Project
+## Running the Project
+
 1️⃣ Generate Training Data
 Monte Carlo simulation:
 python simulation/generate_dataset.py
@@ -80,7 +85,7 @@ python gameplay/ai_agent.py
 
 ---
 
-# ⚙️ Installation
+## ⚙️ Installation
 
 ```bash
 git clone https://github.com/BearGotGit/Ultron-Texas-Hold-Em

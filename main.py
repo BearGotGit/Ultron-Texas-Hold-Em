@@ -4,8 +4,8 @@ Demonstrates usage of PokerAgent and TexasHoldemSimulation with betting.
 """
 
 from treys import Card
-from agent import PokerAgent
-from sim import TexasHoldemSimulation
+from agents import PokerAgent
+from simulation import TexasHoldemSimulation
 
 
 def run_single_hand(agents, game, hand_number=1, show_equity=True):
