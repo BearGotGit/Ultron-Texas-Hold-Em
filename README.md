@@ -84,7 +84,9 @@ pip install -r requirements.txt
 ---
 
 ## Running the Project
-* Note, might migrate this to the module way later, but right now these work:
+
+- Note, might migrate this to the module way later, but right now these work:
+- Only main works right now (2025-11-22)
 
 1️⃣ Generate Training Data
 Monte Carlo simulation:
@@ -97,4 +99,4 @@ Monte Carlo simulation:
 `python training/evaluate_model.py`
 
 4️⃣ Run the Poker Agent
-`python gameplay/ai_agent.py`
+`python main.py`
