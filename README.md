@@ -68,6 +68,21 @@ Ultron-Texas-Hold-Em/
 └── README.md
 ```
 
+---
+
+## ⚙️ Installation
+
+```bash
+git clone https://github.com/BearGotGit/Ultron-Texas-Hold-Em
+cd Ultron-Texas-Hold-Em
+
+python -m venv .venv
+# activate windows or mac way, then...
+pip install -r requirements.txt
+```
+
+---
+
 ## Running the Project
 
 1️⃣ Generate Training Data
@@ -82,13 +97,3 @@ python training/evaluate_model.py
 
 4️⃣ Run the Poker Agent
 python gameplay/ai_agent.py
-
----
-
-## ⚙️ Installation
-
-```bash
-git clone https://github.com/BearGotGit/Ultron-Texas-Hold-Em
-cd Ultron-Texas-Hold-Em
-pip install -r requirements.txt
-```
