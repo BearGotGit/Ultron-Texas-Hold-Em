@@ -23,6 +23,7 @@ Our approach uses **Monte Carlo simulation**, **supervised learning**, and **neu
 ---
 
 # Project Structure
+```
 Ultron-Texas-Hold-Em/
 │
 ├── data/
@@ -61,6 +62,7 @@ Ultron-Texas-Hold-Em/
 │
 ├── requirements.txt
 └── README.md
+```
 
 # Running the Project
 1️⃣ Generate Training Data
