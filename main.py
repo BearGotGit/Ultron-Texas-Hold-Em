@@ -182,10 +182,22 @@ def run_single_hand(agents, game, hand_number=1, show_equity=True):
     print(f"Total pot: ${game.get_pot_size()}\n")
     
     winnings = game.award_pot()
-    for winner, amount in winnings:
-        print(f"{winner} wins ${amount}!")
     
-    print(f"\n{'='*60}\n")
+    # Group winnings by pot
+    pot_groups = {}
+    for winner, amount, pot_desc in winnings:
+        if pot_desc not in pot_groups:
+            pot_groups[pot_desc] = []
+        pot_groups[pot_desc].append((winner, amount))
+    
+    # Display each pot's results
+    for pot_desc, pot_winners in pot_groups.items():
+        print(f"{pot_desc}:")
+        for winner, amount in pot_winners:
+            print(f"  {winner} wins ${amount}!")
+        print()
+    
+    print(f"{'='*60}\n")
 
 
 def run_full_game(num_players=4, starting_chips=1000):
@@ -286,7 +298,7 @@ if __name__ == "__main__":
     # run_full_game(num_players=4, starting_chips=1000)
     
     # Run a multi-hand tournament where stacks persist!
-    run_tournament(num_players=4, starting_chips=1000, num_hands=10)
+    run_tournament(num_players=4, starting_chips=1000, num_hands=40)
     
     # Customize tournament
     # run_tournament(num_players=6, starting_chips=500, num_hands=20)
