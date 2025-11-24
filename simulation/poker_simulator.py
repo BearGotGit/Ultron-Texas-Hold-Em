@@ -33,6 +33,7 @@ class TexasHoldemSimulation:
         self.turn = []
         self.river = []
         self.pot = 0
+        self.pots = []  # List of (amount, eligible_players) for side pots
         
         # Betting state
         self.current_bet = 0  # Current bet to match in this betting round
@@ -47,6 +48,7 @@ class TexasHoldemSimulation:
         self.turn = []
         self.river = []
         self.pot = 0
+        self.pots = []
         self.current_bet = 0
         self.min_raise = self.big_blind
         
@@ -112,43 +114,40 @@ class TexasHoldemSimulation:
         print(f"Pot: ${self.pot}")
         print()
         
-        # Reset current bets for new round
-        for agent in self.agents:
-            agent.reset_current_bet()
-        self.current_bet = 0
+        # Reset current bets for new round (but keep agent.current_bet for blinds tracking)
+        # Only reset self.current_bet if this is NOT pre-flop (blinds already set it)
+        if round_name.lower() != "pre-flop":
+            for agent in self.agents:
+                agent.reset_current_bet()
+            self.current_bet = 0
         
         # Determine starting position (left of dealer)
         start_position = (self.dealer_position + 1) % len(self.agents)
         
         # Track who needs to act
-        active_agents = [agent for agent in self.agents if not agent.is_folded and not agent.is_all_in]
+        active_agents = [agent for agent in self.agents if not agent.is_folded and not agent.is_all_in and agent.get_chips() > 0]
         if len(active_agents) <= 1:
             return True  # Only one player left, no betting needed
         
-        # Continue until all active players have matched the current bet
-        actions_this_round = 0
-        last_raiser_position = None
+        # Track last aggressive action position
+        last_aggressor_position = None
         position = start_position
         
+        # Continue until action returns to last aggressor (or full rotation with no raises)
         while True:
             agent = self.agents[position]
             
-            # Skip if folded or all-in
-            if agent.is_folded or agent.is_all_in:
+            # Skip if folded, all-in, or no chips
+            if agent.is_folded or agent.is_all_in or agent.get_chips() == 0:
                 position = (position + 1) % len(self.agents)
                 continue
             
-            # Check if betting is complete
-            if last_raiser_position is not None and position == last_raiser_position:
-                break
-            if actions_this_round >= len(active_agents) and all(
-                a.current_bet == self.current_bet or a.is_all_in or a.is_folded 
-                for a in self.agents
-            ):
-                break
-            
             # Calculate amount to call
             amount_to_call = self.current_bet - agent.current_bet
+            
+            # Check if betting should end: action has returned to last aggressor
+            if last_aggressor_position is not None and position == last_aggressor_position:
+                break
             
             # Get agent's decision
             action, amount = agent.make_decision(
@@ -162,24 +161,29 @@ class TexasHoldemSimulation:
             if action == 'fold':
                 agent.fold()
                 print(f"{agent} folds")
-                active_agents = [a for a in active_agents if not a.is_folded]
-                if len(active_agents) <= 1:
-                    return True
-            
+                
             elif action == 'check':
                 if amount_to_call == 0:
                     print(f"{agent} checks")
+                    # First check sets the aggressor position (for no-bet rounds)
+                    if last_aggressor_position is None:
+                        last_aggressor_position = position
                 else:
+                    # Can't check if there's a bet - force fold
                     print(f"{agent} tried to check but must call ${amount_to_call}, folding instead")
                     agent.fold()
-                    active_agents = [a for a in active_agents if not a.is_folded]
-                    if len(active_agents) <= 1:
-                        return True
             
             elif action == 'call':
                 actual_amount = agent.place_bet(amount_to_call)
                 self.pot += actual_amount
-                print(f"{agent} calls ${actual_amount} (chips: ${agent.get_chips()})")
+                if agent.is_all_in:
+                    print(f"{agent} calls ${actual_amount} and is ALL-IN! (chips: ${agent.get_chips()})")
+                else:
+                    print(f"{agent} calls ${actual_amount} (chips: ${agent.get_chips()})")
+                
+                # First action (if no bet) sets aggressor
+                if last_aggressor_position is None and self.current_bet > 0:
+                    last_aggressor_position = position
             
             elif action == 'raise':
                 # Total amount is call + raise
@@ -188,13 +192,43 @@ class TexasHoldemSimulation:
                 self.pot += actual_amount
                 
                 # Update current bet
+                old_bet = self.current_bet
                 self.current_bet = agent.current_bet
-                self.min_raise = amount
-                last_raiser_position = position
                 
-                print(f"{agent} raises to ${agent.current_bet} (chips: ${agent.get_chips()})")
+                # Only update aggressor if they actually raised
+                if self.current_bet > old_bet:
+                    last_aggressor_position = position
+                    self.min_raise = max(amount, self.min_raise)
+                
+                if agent.is_all_in:
+                    print(f"{agent} raises to ${agent.current_bet} and is ALL-IN!")
+                else:
+                    print(f"{agent} raises to ${agent.current_bet} (chips: ${agent.get_chips()})")
             
-            actions_this_round += 1
+            # Check if hand is over (only 1 or 0 active players)
+            active_players_remaining = [a for a in self.agents if not a.is_folded and (not a.is_all_in or a.get_chips() > 0)]
+            non_allin_remaining = [a for a in active_players_remaining if not a.is_all_in and a.get_chips() > 0]
+            
+            if len(active_players_remaining) <= 1:
+                print(f"\nPot after {round_name}: ${self.pot}\n")
+                return True
+            
+            # If only one non-all-in player remains, they must match the current bet or fold
+            # Don't exit early - let them act on any outstanding bets
+            if len(non_allin_remaining) == 1:
+                # Check if this player has matched the current bet
+                remaining_player = non_allin_remaining[0]
+                if remaining_player.current_bet >= self.current_bet:
+                    # They've matched, betting is complete
+                    print(f"\nPot after {round_name}: ${self.pot}\n")
+                    return True
+                # Otherwise, continue the loop so they can act
+            elif len(non_allin_remaining) == 0:
+                # Everyone is all-in or folded, no more betting possible
+                print(f"\nPot after {round_name}: ${self.pot}\n")
+                return True
+            
+            # Move to next position
             position = (position + 1) % len(self.agents)
         
         print(f"\nPot after {round_name}: ${self.pot}\n")
@@ -245,20 +279,85 @@ class TexasHoldemSimulation:
         winners = [result[0] for result in results if result[1] == best_score and not result[0].is_folded]
         return winners
     
-    def award_pot(self):
+    def create_side_pots(self):
         """
-        Award the pot to the winner(s).
+        Create side pots based on all-in situations.
         
         Returns:
-            List of winners and their winnings
+            List of tuples: (pot_amount, eligible_agents)
         """
-        winners = self.get_winner()
-        winnings_per_player = self.pot / len(winners)
+        # Get all non-folded players with their total investments
+        active_players = [(agent, agent.total_invested) for agent in self.agents if not agent.is_folded]
+        
+        if len(active_players) <= 1:
+            return [(self.pot, [agent for agent, _ in active_players])]
+        
+        # Sort by investment amount
+        active_players.sort(key=lambda x: x[1])
+        
+        # Check if all players invested the same amount (no all-ins)
+        if all(inv == active_players[0][1] for _, inv in active_players):
+            # Single pot, everyone is eligible
+            return [(self.pot, [agent for agent, _ in active_players])]
+        
+        pots = []
+        remaining_pot = self.pot
+        previous_investment = 0
+        eligible_players = [agent for agent, _ in active_players]
+        
+        for i, (agent, investment) in enumerate(active_players):
+            if investment > previous_investment and remaining_pot > 0:
+                # Calculate pot for this level
+                contribution_per_player = investment - previous_investment
+                pot_amount = contribution_per_player * len(eligible_players)
+                pot_amount = min(pot_amount, remaining_pot)
+                
+                pots.append((pot_amount, eligible_players[:]))
+                remaining_pot -= pot_amount
+                previous_investment = investment
+            
+            # Remove this player from future pots (they're all-in at this level)
+            if i < len(active_players) - 1:
+                eligible_players.remove(agent)
+        
+        return pots
+    
+    def award_pot(self):
+        """
+        Award pot(s) to winner(s) with proper side pot handling.
+        
+        Returns:
+            List of tuples: (winner, amount_won, pot_description)
+        """
+        # Create side pots
+        side_pots = self.create_side_pots()
         
         results = []
-        for winner in winners:
-            winner.add_chips(int(winnings_per_player))
-            results.append((winner, int(winnings_per_player)))
+        
+        # Award each pot separately
+        for pot_num, (pot_amount, eligible_players) in enumerate(side_pots):
+            if pot_amount == 0 or len(eligible_players) == 0:
+                continue
+            
+            # Evaluate hands for eligible players only
+            pot_results = []
+            for agent in eligible_players:
+                score, hand_class, hand_name, percentage = agent.evaluate_hand(self.board)
+                pot_results.append((agent, score, hand_name))
+            
+            # Find winner(s) for this pot
+            best_score = min(result[1] for result in pot_results)
+            pot_winners = [result[0] for result in pot_results if result[1] == best_score]
+            
+            # Split pot among winners
+            winnings_per_winner = int(pot_amount / len(pot_winners))
+            
+            # First pot is main pot, subsequent pots are side pots
+            pot_description = "Main pot" if pot_num == 0 else f"Side pot {pot_num}"
+            
+            for winner in pot_winners:
+                winner.add_chips(winnings_per_winner)
+                results.append((winner, winnings_per_winner, pot_description))
         
         return results
     
