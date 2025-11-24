@@ -5,6 +5,7 @@ Demonstrates usage of PokerAgent and TexasHoldemSimulation with betting.
 
 from treys import Card
 from agents import PokerAgent
+from agents.human_player import HumanPlayer
 from simulation import TexasHoldemSimulation
 
 
@@ -293,12 +294,95 @@ def run_tournament(num_players=4, starting_chips=1000, num_hands=10):
     print(f"\n{'='*60}\n")
 
 
+def play_interactive(num_opponents=3, starting_chips=1000, num_hands=10):
+    """
+    Play poker interactively against AI opponents.
+    
+    Args:
+        num_opponents: Number of AI opponents (default: 3)
+        starting_chips: Starting chip stack for each player (default: 1000)
+        num_hands: Number of hands to play (default: 10)
+    """
+    print(f"\n{'='*60}")
+    print(f"INTERACTIVE TEXAS HOLD'EM")
+    print(f"You vs {num_opponents} AI Opponents - {num_hands} Hands")
+    print(f"{'='*60}\n")
+    
+    # Create agents - Human player first, then AI opponents
+    agents = [HumanPlayer(name="You", starting_chips=starting_chips)]
+    agents.extend([PokerAgent(name=f"AI {i+1}", starting_chips=starting_chips) for i in range(num_opponents)])
+    
+    # Create game simulation
+    game = TexasHoldemSimulation(agents, small_blind=5, big_blind=10)
+    
+    # Run multiple hands
+    for hand_num in range(1, num_hands + 1):
+        # Check if any players are out of chips
+        active_agents = [a for a in agents if a.get_chips() > 0]
+        if len(active_agents) <= 1:
+            print(f"\n{'='*60}")
+            print("GAME OVER - Only one player with chips!")
+            print(f"{'='*60}\n")
+            break
+        
+        # Check if human player is out
+        if agents[0].get_chips() == 0:
+            print(f"\n{'='*60}")
+            print("You're out of chips! Game over.")
+            print(f"{'='*60}\n")
+            break
+        
+        # Rotate dealer position
+        game.dealer_position = (game.dealer_position + 1) % len(agents)
+        
+        # Run the hand (show equity for human player)
+        run_single_hand(agents, game, hand_number=hand_num, show_equity=False)
+        
+        # Show standings after each hand
+        print(f"{'='*60}")
+        print(f"STANDINGS AFTER HAND {hand_num}")
+        print(f"{'='*60}")
+        sorted_agents = sorted(agents, key=lambda a: a.get_chips(), reverse=True)
+        for i, agent in enumerate(sorted_agents, 1):
+            profit = agent.get_chips() - starting_chips
+            status = "💀 BUSTED" if agent.get_chips() == 0 else ""
+            print(f"{i}. {agent}: ${agent.get_chips()} ({profit:+d}) {status}")
+        print()
+        
+        # Ask if user wants to continue
+        if hand_num < num_hands:
+            response = input("Continue to next hand? (y/n): ").strip().lower()
+            if response != 'y':
+                print("\nQuitting game...")
+                break
+    
+    # Final results
+    print(f"\n{'='*60}")
+    print("FINAL RESULTS")
+    print(f"{'='*60}")
+    sorted_agents = sorted(agents, key=lambda a: a.get_chips(), reverse=True)
+    for i, agent in enumerate(sorted_agents, 1):
+        profit = agent.get_chips() - starting_chips
+        print(f"{i}. {agent}: ${agent.get_chips()} ({profit:+d})")
+    
+    human_rank = next(i for i, a in enumerate(sorted_agents, 1) if a.name == "You")
+    if human_rank == 1:
+        print(f"\n🏆 Congratulations! You won!")
+    else:
+        print(f"\nYou finished in {human_rank}{'st' if human_rank == 1 else 'nd' if human_rank == 2 else 'rd' if human_rank == 3 else 'th'} place.")
+    
+    print(f"\n{'='*60}\n")
+
+
 if __name__ == "__main__":
-    # Run a single hand
+    # INTERACTIVE MODE - Play against AI!
+    play_interactive(num_opponents=3, starting_chips=1000, num_hands=10)
+    
+    # Run a single hand (AI only)
     # run_full_game(num_players=4, starting_chips=1000)
     
-    # Run a multi-hand tournament where stacks persist!
-    run_tournament(num_players=4, starting_chips=1000, num_hands=40)
+    # Run a multi-hand tournament where stacks persist (AI only)
+    # run_tournament(num_players=4, starting_chips=1000, num_hands=40)
     
     # Customize tournament
     # run_tournament(num_players=6, starting_chips=500, num_hands=20)

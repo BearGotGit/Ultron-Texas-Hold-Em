@@ -213,8 +213,18 @@ class TexasHoldemSimulation:
                 print(f"\nPot after {round_name}: ${self.pot}\n")
                 return True
             
-            # If everyone is all-in or folded except one player, betting is done
-            if len(non_allin_remaining) <= 1:
+            # If only one non-all-in player remains, they must match the current bet or fold
+            # Don't exit early - let them act on any outstanding bets
+            if len(non_allin_remaining) == 1:
+                # Check if this player has matched the current bet
+                remaining_player = non_allin_remaining[0]
+                if remaining_player.current_bet >= self.current_bet:
+                    # They've matched, betting is complete
+                    print(f"\nPot after {round_name}: ${self.pot}\n")
+                    return True
+                # Otherwise, continue the loop so they can act
+            elif len(non_allin_remaining) == 0:
+                # Everyone is all-in or folded, no more betting possible
                 print(f"\nPot after {round_name}: ${self.pot}\n")
                 return True
             
@@ -285,6 +295,11 @@ class TexasHoldemSimulation:
         # Sort by investment amount
         active_players.sort(key=lambda x: x[1])
         
+        # Check if all players invested the same amount (no all-ins)
+        if all(inv == active_players[0][1] for _, inv in active_players):
+            # Single pot, everyone is eligible
+            return [(self.pot, [agent for agent, _ in active_players])]
+        
         pots = []
         remaining_pot = self.pot
         previous_investment = 0
@@ -301,13 +316,9 @@ class TexasHoldemSimulation:
                 remaining_pot -= pot_amount
                 previous_investment = investment
             
-            # Remove this player from future pots
+            # Remove this player from future pots (they're all-in at this level)
             if i < len(active_players) - 1:
                 eligible_players.remove(agent)
-        
-        # Any remaining pot goes to the main pot
-        if remaining_pot > 0:
-            pots.append((remaining_pot, eligible_players[:]))
         
         return pots
     
@@ -341,7 +352,8 @@ class TexasHoldemSimulation:
             # Split pot among winners
             winnings_per_winner = int(pot_amount / len(pot_winners))
             
-            pot_description = "Main pot" if pot_num == len(side_pots) - 1 else f"Side pot {pot_num + 1}"
+            # First pot is main pot, subsequent pots are side pots
+            pot_description = "Main pot" if pot_num == 0 else f"Side pot {pot_num}"
             
             for winner in pot_winners:
                 winner.add_chips(winnings_per_winner)
