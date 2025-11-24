@@ -85,6 +85,10 @@ class PokerAgent:
         Returns:
             Actual amount bet (may be less if all-in)
         """
+        # Prevent negative bets
+        if amount < 0:
+            return 0
+        
         actual_bet = min(amount, self.chips)
         self.chips -= actual_bet
         self.current_bet += actual_bet
