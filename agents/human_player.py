@@ -82,7 +82,8 @@ class HumanPlayer(PokerAgent):
             available_actions.append("fold")
             if current_bet_to_call <= self.get_chips():
                 available_actions.append("call")
-            if current_bet_to_call < self.get_chips():
+            # Only allow raise if player can afford call + minimum raise
+            if self.get_chips() >= current_bet_to_call + min_raise:
                 available_actions.append("raise")
         
         # Get player input
