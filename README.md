@@ -100,3 +100,33 @@ Monte Carlo simulation:
 
 4️⃣ Run the Poker Agent
 `python main.py`
+
+---
+
+## 🧪 Running Tests
+
+The project includes a comprehensive pytest test suite with 98 tests covering all Texas Hold'em rules and game logic.
+
+**Run tests without coverage:**
+
+```bash
+.venv/bin/python -m pytest tests/ -v
+```
+
+**Run tests with coverage report:**
+
+```bash
+.venv/bin/python -m pytest tests/ -v --cov=agents --cov=simulation --cov-report=term-missing
+```
+
+**Run specific test file:**
+
+```bash
+.venv/bin/python -m pytest tests/test_poker_rules.py -v
+```
+
+Current test coverage:
+
+- `agents/agent.py`: 97%
+- `simulation/poker_simulator.py`: 95%
+- Overall: 76% (95.8% excluding interactive components)
