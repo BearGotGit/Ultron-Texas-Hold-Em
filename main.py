@@ -375,14 +375,44 @@ def play_interactive(num_opponents=3, starting_chips=1000, num_hands=10):
 
 
 if __name__ == "__main__":
-    # INTERACTIVE MODE - Play against AI!
-    play_interactive(num_opponents=3, starting_chips=1000, num_hands=10)
-    
-    # Run a single hand (AI only)
-    # run_full_game(num_players=4, starting_chips=1000)
-    
-    # Run a multi-hand tournament where stacks persist (AI only)
-    # run_tournament(num_players=4, starting_chips=1000, num_hands=40)
-    
-    # Customize tournament
-    # run_tournament(num_players=6, starting_chips=500, num_hands=20)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", choices=["interactive","ai-hand","tournament","generate","ai-vs-ai-model"], default="interactive")
+    parser.add_argument("--num_players", type=int, default=4)
+    parser.add_argument("--starting_chips", type=int, default=1000)
+    parser.add_argument("--num_hands", type=int, default=10)
+    parser.add_argument("--model_path", type=str, default="models/saved/model.pt")
+    parser.add_argument("--model_seats", type=str, default="1")
+    args = parser.parse_args()
+
+    if args.mode == "interactive":
+        play_interactive(num_opponents=args.num_players-1, starting_chips=args.starting_chips, num_hands=args.num_hands)
+    elif args.mode == "ai-hand":
+        run_full_game(num_players=args.num_players, starting_chips=args.starting_chips)
+    elif args.mode == "tournament":
+        run_tournament(num_players=args.num_players, starting_chips=args.starting_chips, num_hands=args.num_hands)
+    elif args.mode == "generate":
+        # convenience wrapper for dataset generator
+        from simulation.generate_dataset import main as gen_main
+        gen_main()
+    elif args.mode == "ai-vs-ai-model":
+        # Launch a single hand or tournament where specified seats use ModelAgent
+        from agents.model_agent import ModelAgent
+        seats = [int(s) for s in args.model_seats.split(",") if s.strip()]
+        # create agents: ModelAgent at specified seats (1-indexed)
+        agents = []
+        for i in range(args.num_players):
+            seat = i+1
+            if seat in seats:
+                agents.append(ModelAgent(name=f"Model{seat}", starting_chips=args.starting_chips, model_path=args.model_path))
+            else:
+                agents.append(PokerAgent(name=f"AI {seat}", starting_chips=args.starting_chips))
+
+        # Attach reference of agents to ModelAgent class so instances can access other players
+        from agents.model_agent import ModelAgent as MA
+        MA.game_agents = agents
+
+        game = TexasHoldemSimulation(agents, small_blind=5, big_blind=10)
+        # play many hands if requested
+        for hand_num in range(1, args.num_hands+1):
+            run_single_hand(agents, game, hand_number=hand_num, show_equity=False)
