@@ -232,6 +232,81 @@ def test_reward_positive_when_hero_wins_chips(two_player_env):
     # but this is statistically extremely unlikely
 
 
+# ============================================================
+# Action Interpretation Tests - Fix for fold when no bet issue
+# ============================================================
+
+def test_fold_converted_to_check_when_no_bet_to_match():
+    """
+    GIVEN a situation where there's no bet to match (to_call <= 0)
+    WHEN p_fold > 0.5 (model wants to fold)
+    THEN interpret_action should return CHECK, not FOLD
+    
+    This is the fix for the "Illogical River Fold" issue where hero
+    folded when there was no bet to call (current_bet == my_bet).
+    In poker, you can't fold when you don't have to put in any money.
+    """
+    from simulation.poker_env import interpret_action
+    from agents.poker_player import ActionType
+    
+    # Case 1: No bet at all (both at 0)
+    action = interpret_action(
+        p_fold=1.0,  # Model wants to fold
+        bet_scalar=0.5,
+        current_bet=0,
+        my_bet=0,
+        min_raise=10,
+        my_money=1000,
+    )
+    assert action.action_type == ActionType.CHECK, \
+        f"Should check when no bet, got {action.action_type}"
+    
+    # Case 2: Hero has already matched the bet
+    action = interpret_action(
+        p_fold=1.0,  # Model wants to fold
+        bet_scalar=0.5,
+        current_bet=50,
+        my_bet=50,
+        min_raise=10,
+        my_money=950,
+    )
+    assert action.action_type == ActionType.CHECK, \
+        f"Should check when already matched bet, got {action.action_type}"
+    
+    # Case 3: Hero has over-matched the bet (happens in heads-up)
+    action = interpret_action(
+        p_fold=1.0,  # Model wants to fold
+        bet_scalar=0.5,
+        current_bet=50,
+        my_bet=100,  # Over-matched
+        min_raise=10,
+        my_money=900,
+    )
+    assert action.action_type == ActionType.CHECK, \
+        f"Should check when over-matched, got {action.action_type}"
+
+
+def test_fold_still_works_when_there_is_bet_to_match():
+    """
+    GIVEN a situation where there IS a bet to match (to_call > 0)
+    WHEN p_fold > 0.5 (model wants to fold)
+    THEN interpret_action should return FOLD
+    """
+    from simulation.poker_env import interpret_action
+    from agents.poker_player import ActionType
+    
+    action = interpret_action(
+        p_fold=1.0,  # Model wants to fold
+        bet_scalar=0.5,
+        current_bet=50,
+        my_bet=10,  # Need to add 40 to call
+        min_raise=10,
+        my_money=990,
+    )
+    assert action.action_type == ActionType.FOLD, \
+        f"Should fold when there's a bet to match, got {action.action_type}"
+
+
 def test_env_reset_returns_valid_observation(two_player_env):
     """
     GIVEN a poker environment

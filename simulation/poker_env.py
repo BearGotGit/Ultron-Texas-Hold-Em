@@ -195,12 +195,15 @@ def interpret_action(
     Returns:
         PokerAction
     """
-    # Fold decision (Bernoulli)
-    if p_fold > 0.5:
-        return PokerAction.fold()
-    
     # Calculate amount to call
     to_call = current_bet - my_bet
+    
+    # Fold decision (Bernoulli)
+    # If there's nothing to fold to (to_call <= 0), convert fold to check
+    if p_fold > 0.5:
+        if to_call <= 0:
+            return PokerAction.check()
+        return PokerAction.fold()
     
     # Interpret bet_scalar
     if bet_scalar < ACTION_EPSILON:
