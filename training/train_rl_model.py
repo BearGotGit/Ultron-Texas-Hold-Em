@@ -677,7 +677,9 @@ class PPOTrainer:
                 action_counts[action_type] += 1
                 
                 # Track saturation and fold-to-nothing
-                if p_fold > SATURATION_THRESHOLD or p_fold < (1 - SATURATION_THRESHOLD):
+                # Saturation means p_fold is near 0 or near 1 (extreme values)
+                is_saturated = (p_fold > SATURATION_THRESHOLD) or (p_fold < (1 - SATURATION_THRESHOLD))
+                if is_saturated:
                     saturated_fold_count += 1
                 if p_fold > 0.5 and to_call <= 0:
                     fold_to_nothing_count += 1
@@ -690,7 +692,7 @@ class PPOTrainer:
                 print(f"    Model output: p_fold={p_fold:.3f}, bet_scalar={bet_scalar:.3f}")
                 
                 # Warn about binary/saturated probabilities
-                if p_fold > SATURATION_THRESHOLD or p_fold < (1 - SATURATION_THRESHOLD):
+                if is_saturated:
                     print(f"    ⚠️  WARNING: p_fold is saturated (extreme value)")
                 
                 print(f"    Value estimate: {value.item():.3f}")

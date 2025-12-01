@@ -161,7 +161,8 @@ class PokerPPOModel(nn.Module):
         # Use smaller initialization for the fold head final layer
         # to prevent saturation (extreme logits → p_fold ≈ 0 or 1)
         # A gain of 0.01 keeps initial logits small (~0) → p_fold ≈ 0.5
-        fold_final_layer = self.fold_head[-1]  # Last linear layer
+        # Note: fold_head and bet_head are nn.Sequential, so [-1] gets the last Linear layer
+        fold_final_layer = self.fold_head[-1]
         nn.init.orthogonal_(fold_final_layer.weight, gain=0.01)
         nn.init.zeros_(fold_final_layer.bias)
         

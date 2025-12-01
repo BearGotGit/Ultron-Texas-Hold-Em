@@ -20,6 +20,12 @@ from simulation.poker_env import (
 )
 
 
+# Test constants
+# Maximum allowed saturation rate for fold probabilities
+# With proper weight initialization, most outputs should be non-saturated
+MAX_SATURATION_RATE = 0.2  # 20%
+
+
 @pytest.fixture
 def model():
     """Create a fresh model instance for testing."""
@@ -57,7 +63,7 @@ def test_model_initialization_produces_non_saturated_fold_probs(model, obs_dim):
         fold_prob = torch.sigmoid(fold_logit)
     
     # Check that fold probabilities are not saturated
-    # With proper initialization, most should be between 0.2 and 0.8
+    # With proper initialization, most should be between 0.1 and 0.9
     fold_probs_np = fold_prob.numpy().flatten()
     
     # Count how many are in the "non-saturated" range
@@ -65,10 +71,10 @@ def test_model_initialization_produces_non_saturated_fold_probs(model, obs_dim):
     saturation_rate = 1 - (non_saturated / batch_size)
     
     # With small initialization gains, most outputs should be near 0.5
-    # Allow up to 20% to be outside the range (statistical variance)
-    assert saturation_rate < 0.2, \
+    assert saturation_rate < MAX_SATURATION_RATE, \
         f"Too many saturated fold probabilities: {saturation_rate*100:.1f}% " \
-        f"(expected < 20%). Min: {fold_probs_np.min():.3f}, Max: {fold_probs_np.max():.3f}"
+        f"(expected < {MAX_SATURATION_RATE*100:.0f}%). " \
+        f"Min: {fold_probs_np.min():.3f}, Max: {fold_probs_np.max():.3f}"
 
 
 def test_model_fold_head_weights_are_small(model):
