@@ -649,13 +649,22 @@ class PokerEnv(gym.Env):
         
         hero = self.players[self.hero_idx]
         
-        # Reward = chips won/lost this hand
-        # Compare final chips to chips at hand start (after blinds posted)
+        # Reward = chips won/lost this hand, normalized by starting_stack
+        # Using starting_stack (constant) instead of hand-start chips (variable)
+        # ensures consistent reward scaling across hands, making rewards
+        # comparable regardless of hero's current chip count.
         initial_chips = self.hero_hand_start_chips
-        if initial_chips <= 0:
-            # Edge case: hero had no chips at hand start
+        starting_stack = self.config.starting_stack
+        
+        if starting_stack <= 0:
+            # Edge case: invalid starting stack
             return 0.0
-        reward = (hero.money - initial_chips) / initial_chips  # Normalized
+        
+        # Calculate chip delta from hand start
+        chip_delta = hero.money - initial_chips
+        
+        # Normalize by starting_stack for consistent scaling
+        reward = chip_delta / starting_stack
         
         return reward
     
