@@ -179,6 +179,10 @@ class PokerPlayer(ABC):
         self.total_invested = 0
         self._private_cards = []
     
+    def reset_money(self, starting_money: int):
+        """Reset money to starting stack for episodic resets."""
+        self.money = starting_money
+    
     def reset_bet(self):
         """Reset bet for a new betting round."""
         self.bet = 0
