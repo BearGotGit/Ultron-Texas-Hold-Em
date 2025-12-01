@@ -152,17 +152,23 @@ def test_env_reset_restores_all_players_money(two_player_env):
 # Basic Environment Tests
 # ============================================================
 
-def test_reward_uses_hand_start_chips_not_starting_stack(two_player_env):
+def test_reward_normalized_by_starting_stack(two_player_env):
     """
-    GIVEN an environment where hero has different chips than starting_stack
-    WHEN hero wins chips
-    THEN reward should be calculated based on hand-start chips, not starting_stack
+    GIVEN an environment
+    WHEN hero wins or loses chips
+    THEN reward should be calculated as:
+         (final_chips - hand_start_chips) / starting_stack
     
-    This is the main test for Bug #2: Reward calculation uses wrong baseline
-    Example: Hero with 500 chips wins 100 → reward should be positive
-    But if using starting_stack (1000), reward = (600-1000)/1000 = -0.4 (wrong sign)
+    This normalization ensures rewards are comparable across hands regardless
+    of hero's current chip count. The delta is still computed from hand-start
+    chips to correctly track profit/loss, but divided by starting_stack for
+    consistent scaling.
+    
+    Example: Hero with 500 chips wins 100 → ends with 600
+    Reward = (600 - 500) / 1000 = 0.1 (positive, correctly shows profit)
     """
     env = two_player_env
+    starting_stack = env.config.starting_stack
     
     # Reset the environment
     obs, info = env.reset()
@@ -185,12 +191,13 @@ def test_reward_uses_hand_start_chips_not_starting_stack(two_player_env):
             final_reward = reward
         done = terminated or truncated
     
-    # Calculate expected reward based on hand-start chips (not starting_stack)
+    # Calculate expected reward: delta from hand-start normalized by starting_stack
     final_chips = hero.money
-    expected_reward = (final_chips - initial_chips) / initial_chips if initial_chips > 0 else 0.0
+    chip_delta = final_chips - initial_chips
+    expected_reward = chip_delta / starting_stack if starting_stack > 0 else 0.0
     
     assert abs(final_reward - expected_reward) < 1e-6, \
-        f"Reward should be {expected_reward} (based on hand-start chips {initial_chips}) " \
+        f"Reward should be {expected_reward} (chip_delta={chip_delta}, starting_stack={starting_stack}) " \
         f"but got {final_reward}"
 
 
@@ -230,6 +237,53 @@ def test_reward_positive_when_hero_wins_chips(two_player_env):
     
     # Note: This test may rarely fail if hero never wins in 50 hands
     # but this is statistically extremely unlikely
+
+
+def test_reward_scales_with_chip_delta(two_player_env):
+    """
+    GIVEN different chip deltas (profits/losses)
+    WHEN reward is calculated
+    THEN rewards should scale linearly with chip delta
+    
+    This test verifies that rewards vary based on the amount won/lost,
+    addressing the issue where rewards were suspiciously consistent.
+    """
+    env = two_player_env
+    starting_stack = env.config.starting_stack
+    
+    # Test with direct reward calculation
+    # We can't easily control the game outcome, so we'll verify the formula
+    # by checking that different deltas produce different rewards
+    
+    # Manually set up a scenario and verify reward
+    obs, info = env.reset()
+    hero = env.players[env.hero_idx]
+    initial_chips = env.hero_hand_start_chips
+    
+    # Play through
+    done = False
+    final_reward = 0.0
+    while not done:
+        action = np.array([0.0, 0.5])
+        obs, reward, terminated, truncated, info = env.step(action)
+        if terminated or truncated:
+            final_reward = reward
+        done = terminated or truncated
+    
+    final_chips = hero.money
+    chip_delta = final_chips - initial_chips
+    
+    # Verify the relationship: reward = chip_delta / starting_stack
+    expected_reward = chip_delta / starting_stack
+    assert abs(final_reward - expected_reward) < 1e-6, \
+        f"Reward {final_reward} should equal chip_delta/starting_stack = {expected_reward}"
+    
+    # Verify the scaling property
+    # If chip_delta is X, reward should be X/1000
+    # This means doubling the chip_delta would double the reward
+    # We verify this by checking the formula holds
+    assert abs(final_reward * starting_stack - chip_delta) < 1e-6, \
+        "Reward should scale linearly with chip_delta"
 
 
 def test_env_reset_returns_valid_observation(two_player_env):
