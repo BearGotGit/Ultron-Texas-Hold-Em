@@ -332,9 +332,10 @@ class PokerEnv(gym.Env):
         # Reset deck
         self.deck = Deck()
         
-        # Reset players
+        # Reset players (including money for episodic reset)
         for player in self.players:
             player.reset()
+            player.reset_money(self.config.starting_stack)
         
         # Reset game state
         self.pot = Pot()
