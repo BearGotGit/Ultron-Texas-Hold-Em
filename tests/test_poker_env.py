@@ -318,8 +318,8 @@ def test_opponent_does_not_always_fold_to_raises():
         max_players=2,
     )
     
-    # Track fold rate over many games
-    num_games = 50
+    # Track fold rate over many games (100 for statistical reliability)
+    num_games = 100
     folds = 0
     calls_or_raises = 0
     

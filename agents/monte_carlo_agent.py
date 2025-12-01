@@ -20,6 +20,17 @@ from agents.poker_player import (
 )
 
 
+# ============================================================
+# Pre-flop Decision Constants
+# ============================================================
+
+# When pot odds are favorable (< 0.33), reduce call threshold by this factor
+POT_ODDS_THRESHOLD_REDUCTION = 0.8
+
+# Aggression contributes to calling chance with this weight
+AGGRESSION_CALL_FACTOR = 0.2
+
+
 class MonteCarloAgent(PokerPlayer):
     """
     Monte Carlo-based poker agent.
@@ -207,7 +218,7 @@ class MonteCarloAgent(PokerPlayer):
             pot_odds = to_call / (pot + to_call)
             # If pot odds are favorable (< 0.33 means 2:1 or better), be more willing to call
             if pot_odds < 0.33:
-                call_threshold *= 0.8  # 20% reduction in threshold
+                call_threshold *= POT_ODDS_THRESHOLD_REDUCTION
         
         if to_call <= 0:
             # No bet to call
@@ -229,9 +240,9 @@ class MonteCarloAgent(PokerPlayer):
         
         else:
             # Weak hand - consider calling sometimes based on aggression and bluff frequency
-            # Combined chance to call = bluff_frequency + (aggression * 0.2)
+            # Combined chance to call = bluff_frequency + (aggression * AGGRESSION_CALL_FACTOR)
             # This makes aggressive players more likely to defend with weak hands
-            call_chance = self.bluff_frequency + (self.aggression * 0.2)
+            call_chance = self.bluff_frequency + (self.aggression * AGGRESSION_CALL_FACTOR)
             if random.random() < call_chance:
                 return PokerAction.call(min(to_call, my_money))
             return PokerAction.fold()
