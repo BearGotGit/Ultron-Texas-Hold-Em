@@ -72,6 +72,10 @@ class PPOConfig:
     run_name: str = field(default_factory=lambda: f"ppo_{int(time.time())}")
     save_dir: str = "checkpoints"
     log_dir: str = "runs"
+    
+    # Debug
+    debug: bool = False
+    debug_episodes: int = 3  # Number of episodes to run in debug mode
 
 
 class RolloutBuffer:
@@ -563,6 +567,162 @@ class PPOTrainer:
         self.global_step = checkpoint["global_step"]
         self.num_updates = checkpoint["num_updates"]
         print(f"Loaded checkpoint from {path}")
+    
+    def debug_run(self, num_episodes: int = 3):
+        """
+        Run detailed debug episodes to understand what's happening.
+        
+        Prints detailed info about:
+        - Opponent setup (what kind of bots)
+        - Hero's actions (is it folding?)
+        - Rewards and game flow
+        - Step-by-step progression
+        """
+        from treys import Card
+        from simulation.poker_env import interpret_action
+        
+        print("\n" + "="*80)
+        print("DEBUG MODE: Running detailed analysis")
+        print("="*80)
+        
+        # Print environment setup
+        print("\n--- ENVIRONMENT SETUP ---")
+        print(f"Number of players: {self.config.num_players}")
+        print(f"Starting stack: {self.config.starting_stack}")
+        print(f"Big blind: {self.config.big_blind}")
+        print(f"Small blind: {self.config.small_blind}")
+        
+        # Print opponent types
+        print("\n--- OPPONENT CONFIGURATION ---")
+        env = self.envs[0]
+        for i, player in enumerate(env.players):
+            player_type = type(player).__name__
+            if i == env.hero_idx:
+                print(f"  Player {i} (HERO): {player.id} - Type: {player_type}")
+            else:
+                print(f"  Player {i}: {player.id} - Type: {player_type}")
+                if hasattr(player, 'aggression'):
+                    print(f"    - Aggression: {player.aggression}")
+                if hasattr(player, 'num_simulations'):
+                    print(f"    - MC Simulations: {player.num_simulations}")
+        
+        print("\n--- RUNNING DEBUG EPISODES ---")
+        self.model.eval()
+        
+        # Track statistics
+        action_counts = {'fold': 0, 'check': 0, 'call': 0, 'raise': 0}
+        total_steps = 0
+        total_rewards = 0.0
+        
+        for episode in range(num_episodes):
+            print(f"\n{'='*60}")
+            print(f"EPISODE {episode + 1}/{num_episodes}")
+            print(f"{'='*60}")
+            
+            obs, info = env.reset()
+            
+            # Print initial state
+            hero = env.players[env.hero_idx]
+            hole_cards = hero.get_hole_cards()
+            print(f"\nInitial State:")
+            print(f"  Hero's hole cards: {[Card.int_to_pretty_str(c) for c in hole_cards]}")
+            print(f"  Hero's money: ${hero.money}")
+            print(f"  Pot: ${env.pot.money}")
+            print(f"  Round stage: {env.round_stage}")
+            print(f"  Active player: {env.active_player_idx} (Hero is {env.hero_idx})")
+            
+            done = False
+            step = 0
+            episode_reward = 0.0
+            
+            while not done:
+                step += 1
+                total_steps += 1
+                
+                # Get model's action
+                obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
+                with torch.no_grad():
+                    action, log_prob, _, value = self.model.get_action_and_value(obs_t)
+                action_np = action.squeeze(0).cpu().numpy()
+                
+                p_fold = float(action_np[0])
+                bet_scalar = float(action_np[1])
+                
+                # Interpret the action
+                poker_action = interpret_action(
+                    p_fold=p_fold,
+                    bet_scalar=bet_scalar,
+                    current_bet=env.current_bet,
+                    my_bet=hero.bet,
+                    min_raise=env.min_raise,
+                    my_money=hero.money,
+                )
+                
+                # Track action type
+                action_type = poker_action.action_type.value
+                action_counts[action_type] = action_counts.get(action_type, 0) + 1
+                
+                print(f"\n  Step {step}:")
+                print(f"    Round: {env.round_stage}")
+                print(f"    Board: {[Card.int_to_pretty_str(c) for c in env.board]}")
+                print(f"    Pot: ${env.pot.money}")
+                print(f"    Current bet: ${env.current_bet}, Hero's bet: ${hero.bet}")
+                print(f"    Model output: p_fold={p_fold:.3f}, bet_scalar={bet_scalar:.3f}")
+                print(f"    Value estimate: {value.item():.3f}")
+                print(f"    Interpreted action: {action_type.upper()} (amount={poker_action.amount})")
+                
+                # Take step
+                next_obs, reward, terminated, truncated, info = env.step(action_np)
+                episode_reward += reward
+                total_rewards += reward
+                
+                print(f"    Reward: {reward:.4f}")
+                print(f"    Terminated: {terminated}, Truncated: {truncated}")
+                
+                if terminated or truncated:
+                    print(f"\n  Episode ended at step {step}")
+                    print(f"  Final hero money: ${env.players[env.hero_idx].money}")
+                    print(f"  Total episode reward: {episode_reward:.4f}")
+                    done = True
+                else:
+                    obs = next_obs
+            
+        print("\n" + "="*80)
+        print("DEBUG SUMMARY")
+        print("="*80)
+        print(f"\nAction distribution over {total_steps} steps:")
+        for action_type, count in action_counts.items():
+            pct = (count / total_steps * 100) if total_steps > 0 else 0
+            print(f"  {action_type.upper()}: {count} ({pct:.1f}%)")
+        
+        print(f"\nAverage steps per episode: {total_steps / num_episodes:.1f}")
+        print(f"Average reward per episode: {total_rewards / num_episodes:.4f}")
+        
+        # Check for problems
+        print("\n--- POTENTIAL ISSUES ---")
+        issues_found = False
+        
+        if action_counts.get('fold', 0) / max(total_steps, 1) > 0.5:
+            print("⚠️  Hero is folding more than 50% of the time!")
+            issues_found = True
+        
+        if total_steps / num_episodes <= 1.5:
+            print("⚠️  Episodes are ending very quickly (avg <= 1.5 steps)")
+            print("    This suggests hero might be folding immediately or")
+            print("    there's an issue with the game flow.")
+            issues_found = True
+        
+        if abs(total_rewards) < 0.001:
+            print("⚠️  Rewards are very close to zero")
+            print("    This could mean the reward function isn't working properly.")
+            issues_found = True
+            
+        if not issues_found:
+            print("No obvious issues detected.")
+        
+        print("\n" + "="*80)
+        print("END DEBUG MODE")
+        print("="*80 + "\n")
 
 
 def main():
@@ -578,6 +738,8 @@ def main():
     parser.add_argument("--run-name", type=str, default=None, help="Run name for logging")
     parser.add_argument("--resume", type=str, default=None, help="Checkpoint to resume from")
     parser.add_argument("--save-path", type=str, default=None, help="Custom path for final model save")
+    parser.add_argument("--debug", action="store_true", help="Run in debug mode (no training, just analysis)")
+    parser.add_argument("--debug-episodes", type=int, default=3, help="Number of episodes to run in debug mode")
     args = parser.parse_args()
     
     config = PPOConfig(
@@ -587,6 +749,8 @@ def main():
         learning_rate=args.lr,
         hidden_dim=args.hidden_dim,
         run_name=args.run_name or f"ppo_{int(time.time())}",
+        debug=args.debug,
+        debug_episodes=args.debug_episodes,
     )
     
     trainer = PPOTrainer(config)
@@ -594,7 +758,10 @@ def main():
     if args.resume:
         trainer.load_checkpoint(args.resume)
     
-    trainer.train(save_path=args.save_path)
+    if config.debug:
+        trainer.debug_run(num_episodes=config.debug_episodes)
+    else:
+        trainer.train(save_path=args.save_path)
 
 
 if __name__ == "__main__":
