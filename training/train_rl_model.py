@@ -580,6 +580,7 @@ class PPOTrainer:
         """
         from treys import Card
         from simulation.poker_env import interpret_action
+        from agents.poker_player import ActionType
         
         print("\n" + "="*80)
         print("DEBUG MODE: Running detailed analysis")
@@ -609,10 +610,15 @@ class PPOTrainer:
         print("\n--- RUNNING DEBUG EPISODES ---")
         self.model.eval()
         
-        # Track statistics
-        action_counts = {'fold': 0, 'check': 0, 'call': 0, 'raise': 0}
+        # Track statistics - use ActionType enum values as keys
+        action_counts = {at.value: 0 for at in ActionType}
         total_steps = 0
         total_rewards = 0.0
+        
+        # Thresholds for issue detection
+        FOLD_RATE_THRESHOLD = 0.5  # Warn if folding more than 50%
+        MIN_AVG_EPISODE_LENGTH = 1.5  # Warn if avg episode length <= this
+        MIN_REWARD_THRESHOLD = 0.001  # Warn if avg reward is below this
         
         for episode in range(num_episodes):
             print(f"\n{'='*60}")
@@ -702,18 +708,21 @@ class PPOTrainer:
         print("\n--- POTENTIAL ISSUES ---")
         issues_found = False
         
-        if action_counts.get('fold', 0) / max(total_steps, 1) > 0.5:
-            print("⚠️  Hero is folding more than 50% of the time!")
+        fold_rate = action_counts.get(ActionType.FOLD.value, 0) / max(total_steps, 1)
+        if fold_rate > FOLD_RATE_THRESHOLD:
+            print(f"⚠️  Hero is folding more than {FOLD_RATE_THRESHOLD*100:.0f}% of the time!")
             issues_found = True
         
-        if total_steps / num_episodes <= 1.5:
-            print("⚠️  Episodes are ending very quickly (avg <= 1.5 steps)")
+        avg_episode_length = total_steps / num_episodes
+        if avg_episode_length <= MIN_AVG_EPISODE_LENGTH:
+            print(f"⚠️  Episodes are ending very quickly (avg <= {MIN_AVG_EPISODE_LENGTH} steps)")
             print("    This suggests hero might be folding immediately or")
             print("    there's an issue with the game flow.")
             issues_found = True
         
-        if abs(total_rewards) < 0.001:
-            print("⚠️  Rewards are very close to zero")
+        avg_reward = abs(total_rewards / num_episodes)
+        if avg_reward < MIN_REWARD_THRESHOLD:
+            print(f"⚠️  Rewards are very close to zero (< {MIN_REWARD_THRESHOLD})")
             print("    This could mean the reward function isn't working properly.")
             issues_found = True
             
