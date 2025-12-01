@@ -681,20 +681,37 @@ class PokerEnv(gym.Env):
             if i >= MAX_PLAYERS:
                 break
             base = i * FEATURES_PER_PLAYER
-            player_features[base] = player.money / self.config.starting_stack
-            player_features[base + 1] = player.bet / self.config.big_blind if self.config.big_blind > 0 else 0
+            # Normalize money: log(money+1) / log(starting_stack+1)
+            stack_normalizer = np.log1p(self.config.starting_stack)
+            player_features[base] = np.log1p(player.money) / stack_normalizer
+            # Normalize bet: log(bet+1) / log(big_blind+1)
+            bb_normalizer = np.log1p(self.config.big_blind) if self.config.big_blind > 0 else 1.0
+            player_features[base + 1] = np.log1p(player.bet) / bb_normalizer
+            # Binary flags (no normalization needed)
             player_features[base + 2] = float(player.folded)
             player_features[base + 3] = float(player.all_in)
         obs_parts.append(player_features)
         
         # 4. Global features
+        # Normalizers
+        total_starting_money = self.config.starting_stack * self.num_players
+        stack_normalizer = np.log1p(total_starting_money)
+        bb_normalizer = np.log1p(self.config.big_blind) if self.config.big_blind > 0 else 1.0
+        num_players_normalizer = np.log1p(self.num_players)
+        
         global_features = np.array([
-            self.pot.money / (self.config.starting_stack * self.num_players),
-            self.current_bet / self.config.big_blind if self.config.big_blind > 0 else 0,
-            self.min_raise / self.config.big_blind if self.config.big_blind > 0 else 0,
+            # Pot: log(pot+1) / log(total_starting_money+1)
+            np.log1p(self.pot.money) / stack_normalizer,
+            # Current bet: log(bet+1) / log(big_blind+1)
+            np.log1p(self.current_bet) / bb_normalizer,
+            # Min raise: log(raise+1) / log(big_blind+1)
+            np.log1p(self.min_raise) / bb_normalizer,
+            # Round stage: normalize to [0, 1]
             encode_round_stage(self.round_stage) / 4.0,
-            self.hero_idx / self.num_players,
-            self.dealer_position / self.num_players,
+            # Hero position: normalize to [0, 1]
+            self.hero_idx / max(self.num_players - 1, 1),
+            # Dealer position: normalize to [0, 1]
+            self.dealer_position / max(self.num_players - 1, 1),
         ], dtype=np.float32)
         obs_parts.append(global_features)
         
