@@ -666,7 +666,7 @@ class PPOTrainer:
                 
                 # Track action type
                 action_type = poker_action.action_type.value
-                action_counts[action_type] = action_counts.get(action_type, 0) + 1
+                action_counts[action_type] += 1
                 
                 print(f"\n  Step {step}:")
                 print(f"    Round: {env.round_stage}")
