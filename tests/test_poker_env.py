@@ -152,6 +152,86 @@ def test_env_reset_restores_all_players_money(two_player_env):
 # Basic Environment Tests
 # ============================================================
 
+def test_reward_uses_hand_start_chips_not_starting_stack(two_player_env):
+    """
+    GIVEN an environment where hero has different chips than starting_stack
+    WHEN hero wins chips
+    THEN reward should be calculated based on hand-start chips, not starting_stack
+    
+    This is the main test for Bug #2: Reward calculation uses wrong baseline
+    Example: Hero with 500 chips wins 100 → reward should be positive
+    But if using starting_stack (1000), reward = (600-1000)/1000 = -0.4 (wrong sign)
+    """
+    env = two_player_env
+    
+    # Reset the environment
+    obs, info = env.reset()
+    
+    # Verify hero_hand_start_chips is set correctly after reset
+    hero = env.players[env.hero_idx]
+    assert env.hero_hand_start_chips == hero.money, \
+        f"hero_hand_start_chips should be {hero.money} but got {env.hero_hand_start_chips}"
+    
+    # Track initial chips at hand start for manual verification
+    initial_chips = hero.money
+    
+    # Play the hand through to completion
+    done = False
+    final_reward = 0.0
+    while not done:
+        action = np.array([0.0, 0.5])  # Don't fold, moderate bet
+        obs, reward, terminated, truncated, info = env.step(action)
+        if terminated or truncated:
+            final_reward = reward
+        done = terminated or truncated
+    
+    # Calculate expected reward based on hand-start chips (not starting_stack)
+    final_chips = hero.money
+    expected_reward = (final_chips - initial_chips) / initial_chips if initial_chips > 0 else 0.0
+    
+    assert abs(final_reward - expected_reward) < 1e-6, \
+        f"Reward should be {expected_reward} (based on hand-start chips {initial_chips}) " \
+        f"but got {final_reward}"
+
+
+def test_reward_positive_when_hero_wins_chips(two_player_env):
+    """
+    GIVEN an environment
+    WHEN hero ends the hand with more chips than at hand start
+    THEN reward should be positive
+    """
+    env = two_player_env
+    obs, info = env.reset()
+    
+    hero = env.players[env.hero_idx]
+    initial_chips = env.hero_hand_start_chips
+    
+    # Play hands until we find one where hero wins
+    # (this may take a few episodes since it's probabilistic)
+    for _ in range(50):  # Try up to 50 hands
+        obs, info = env.reset()
+        initial_chips = env.hero_hand_start_chips
+        
+        done = False
+        final_reward = 0.0
+        while not done:
+            action = np.array([0.0, 0.5])  # Don't fold
+            obs, reward, terminated, truncated, info = env.step(action)
+            if terminated or truncated:
+                final_reward = reward
+            done = terminated or truncated
+        
+        final_chips = hero.money
+        if final_chips > initial_chips:
+            # Hero won chips - reward should be positive
+            assert final_reward > 0, \
+                f"Reward should be positive when hero wins chips, but got {final_reward}"
+            return  # Test passed
+    
+    # Note: This test may rarely fail if hero never wins in 50 hands
+    # but this is statistically extremely unlikely
+
+
 def test_env_reset_returns_valid_observation(two_player_env):
     """
     GIVEN a poker environment

@@ -287,6 +287,9 @@ class PokerEnv(gym.Env):
         self.last_aggressor_idx: Optional[int] = None
         self.players_acted_this_round: set = set()
         
+        # Track hero's chips at hand start for reward calculation
+        self.hero_hand_start_chips: int = 0
+        
         # Calculate observation size
         self.card_obs_dim = NUM_CARD_SLOTS * CARD_ENCODING_DIM
         self.hand_features_dim = NUM_HAND_FEATURES
@@ -355,6 +358,9 @@ class PokerEnv(gym.Env):
         
         # Post blinds
         self._post_blinds()
+        
+        # Track hero's chips at hand start (after blinds posted) for reward calculation
+        self.hero_hand_start_chips = self.players[self.hero_idx].money
         
         # Set starting player (left of big blind for pre-flop)
         self.active_player_idx = (self.dealer_position + 3) % self.num_players
@@ -638,9 +644,11 @@ class PokerEnv(gym.Env):
         hero = self.players[self.hero_idx]
         
         # Reward = chips won/lost this hand
-        # This is calculated as final chips - starting chips (before hand)
-        # For simplicity, we track chip changes
-        initial_chips = self.config.starting_stack
+        # Compare final chips to chips at hand start (after blinds posted)
+        initial_chips = self.hero_hand_start_chips
+        if initial_chips <= 0:
+            # Edge case: hero had no chips at hand start
+            return 0.0
         reward = (hero.money - initial_chips) / initial_chips  # Normalized
         
         return reward
