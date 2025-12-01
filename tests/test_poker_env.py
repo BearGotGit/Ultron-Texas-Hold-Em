@@ -389,6 +389,78 @@ def test_interpret_action_call_when_low_bet_scalar_and_bet_to_call():
     
     assert action.action_type == ActionType.CALL
     assert action.amount == 50
+# Opponent Behavior Tests - Fix for Task #3
+# ============================================================
+
+def test_opponent_does_not_always_fold_to_raises():
+    """
+    GIVEN a poker environment with MonteCarloAgent opponents
+    WHEN hero makes large raises
+    THEN opponents should NOT always fold (should call/raise sometimes)
+    
+    This is the main test for Task #3: Opponent behavior breaks training
+    dynamics because opponents were folding too often to any raise.
+    
+    With the fix, opponents should call at least 30% of the time even
+    when facing large raises, providing better training signal.
+    """
+    from simulation.poker_env import PokerEnv, PokerEnvConfig
+    from agents.monte_carlo_agent import MonteCarloAgent
+    
+    config = PokerEnvConfig(
+        big_blind=10,
+        small_blind=5,
+        starting_stack=1000,
+        max_players=2,
+    )
+    
+    # Track fold rate over many games (100 for statistical reliability)
+    num_games = 100
+    folds = 0
+    calls_or_raises = 0
+    
+    for _ in range(num_games):
+        # Create fresh players each game to avoid state issues
+        hero = MonteCarloAgent(
+            player_id="Hero",
+            starting_money=config.starting_stack,
+            num_simulations=10,
+        )
+        opponent = MonteCarloAgent(
+            player_id="Opponent",
+            starting_money=config.starting_stack,
+            num_simulations=10,
+            aggression=0.5,
+            bluff_frequency=0.1,
+        )
+        
+        env = PokerEnv(players=[hero, opponent], config=config, hero_idx=0)
+        obs, _ = env.reset()
+        
+        # Hero makes a large raise (bet_scalar=0.5 means ~500 chip raise)
+        action = np.array([0.0, 0.5])
+        obs, reward, terminated, truncated, info = env.step(action)
+        
+        # Check opponent's response
+        opp = env.players[1]
+        if opp.folded:
+            folds += 1
+        else:
+            calls_or_raises += 1
+    
+    fold_rate = folds / num_games
+    
+    # Opponent should not fold more than 70% of the time
+    # (before the fix, fold rate was >90%)
+    assert fold_rate <= 0.70, \
+        f"Opponent fold rate {fold_rate:.1%} is too high (>70%). " \
+        "This breaks training dynamics."
+    
+    # Opponent should call/raise at least 30% of the time
+    call_rate = calls_or_raises / num_games
+    assert call_rate >= 0.30, \
+        f"Opponent call rate {call_rate:.1%} is too low (<30%). " \
+        "Opponents need to defend against raises."
 
 
 if __name__ == "__main__":
