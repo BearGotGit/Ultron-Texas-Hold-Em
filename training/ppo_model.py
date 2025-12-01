@@ -147,12 +147,30 @@ class PokerPPOModel(nn.Module):
         self._init_weights()
     
     def _init_weights(self):
-        """Initialize network weights using orthogonal initialization."""
+        """Initialize network weights using orthogonal initialization.
+        
+        Uses smaller gains for output heads to prevent saturation of
+        fold probabilities at 0 or 1 during early training.
+        """
         for module in self.modules():
             if isinstance(module, nn.Linear):
                 nn.init.orthogonal_(module.weight, gain=1.0)
                 if module.bias is not None:
                     nn.init.zeros_(module.bias)
+        
+        # Use smaller initialization for the fold head final layer
+        # to prevent saturation (extreme logits → p_fold ≈ 0 or 1)
+        # A gain of 0.01 keeps initial logits small (~0) → p_fold ≈ 0.5
+        # Note: fold_head and bet_head are nn.Sequential, so [-1] gets the last Linear layer
+        fold_final_layer = self.fold_head[-1]
+        nn.init.orthogonal_(fold_final_layer.weight, gain=0.01)
+        nn.init.zeros_(fold_final_layer.bias)
+        
+        # Similarly, use smaller initialization for bet head final layer
+        # to produce more uniform Beta distribution parameters initially
+        bet_final_layer = self.bet_head[-1]
+        nn.init.orthogonal_(bet_final_layer.weight, gain=0.01)
+        nn.init.zeros_(bet_final_layer.bias)
     
     def _embed_cards(self, obs: torch.Tensor) -> torch.Tensor:
         """

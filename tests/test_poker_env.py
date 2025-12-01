@@ -293,6 +293,102 @@ def test_env_action_space_is_correct(two_player_env):
 
 
 # ============================================================
+# Action Interpretation Tests
+# ============================================================
+
+def test_interpret_action_fold_converted_to_check_when_nothing_to_call():
+    """
+    GIVEN interpret_action is called with p_fold > 0.5
+    WHEN there is nothing to call (to_call <= 0)
+    THEN should return CHECK instead of FOLD
+    
+    This tests the fix for the illegal fold bug where the model
+    could fold when there was no bet to call.
+    """
+    from simulation.poker_env import interpret_action
+    from agents.poker_player import ActionType
+    
+    # p_fold = 1.0 (wants to fold), but nothing to call
+    action = interpret_action(
+        p_fold=1.0,
+        bet_scalar=0.5,
+        current_bet=0,  # No current bet
+        my_bet=0,       # Hero hasn't bet either
+        min_raise=10,
+        my_money=1000,
+    )
+    
+    # Should be CHECK, not FOLD (can't fold when nothing to call)
+    assert action.action_type == ActionType.CHECK
+    assert action.amount == 0
+
+
+def test_interpret_action_fold_allowed_when_bet_to_call():
+    """
+    GIVEN interpret_action is called with p_fold > 0.5
+    WHEN there is a bet to call (to_call > 0)
+    THEN should return FOLD
+    """
+    from simulation.poker_env import interpret_action
+    from agents.poker_player import ActionType
+    
+    # p_fold = 1.0, and there's a bet to call
+    action = interpret_action(
+        p_fold=1.0,
+        bet_scalar=0.5,
+        current_bet=50,  # Current bet is 50
+        my_bet=0,        # Hero hasn't matched it
+        min_raise=10,
+        my_money=1000,
+    )
+    
+    # Should be FOLD (there's something to call)
+    assert action.action_type == ActionType.FOLD
+    assert action.amount == 0
+
+
+def test_interpret_action_check_when_low_bet_scalar_and_nothing_to_call():
+    """
+    GIVEN interpret_action is called with low bet_scalar
+    WHEN there is nothing to call
+    THEN should return CHECK
+    """
+    from simulation.poker_env import interpret_action
+    from agents.poker_player import ActionType
+    
+    action = interpret_action(
+        p_fold=0.0,     # Don't fold
+        bet_scalar=0.05,  # Low bet scalar (< epsilon)
+        current_bet=0,
+        my_bet=0,
+        min_raise=10,
+        my_money=1000,
+    )
+    
+    assert action.action_type == ActionType.CHECK
+    assert action.amount == 0
+
+
+def test_interpret_action_call_when_low_bet_scalar_and_bet_to_call():
+    """
+    GIVEN interpret_action is called with low bet_scalar
+    WHEN there is a bet to call
+    THEN should return CALL
+    """
+    from simulation.poker_env import interpret_action
+    from agents.poker_player import ActionType
+    
+    action = interpret_action(
+        p_fold=0.0,       # Don't fold
+        bet_scalar=0.05,  # Low bet scalar (< epsilon)
+        current_bet=50,
+        my_bet=0,
+        min_raise=10,
+        my_money=1000,
+    )
+    
+    assert action.action_type == ActionType.CALL
+    assert action.amount == 50
 # Opponent Behavior Tests - Fix for Task #3
 # ============================================================
 

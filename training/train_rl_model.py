@@ -594,14 +594,16 @@ class PPOTrainer:
         print(f"Small blind: {self.config.small_blind}")
         
         # Print opponent types
-        print("\n--- OPPONENT CONFIGURATION ---")
+        print("\n--- PLAYER CONFIGURATION ---")
         env = self.envs[0]
         for i, player in enumerate(env.players):
             player_type = type(player).__name__
             if i == env.hero_idx:
-                print(f"  Player {i} (HERO): {player.id} - Type: {player_type}")
+                # Hero is controlled by the RL model (PokerPPOModel), not the placeholder agent type
+                print(f"  Player {i} [HERO - RL Agent]: {player.id}")
+                print(f"    - Actions controlled by: PokerPPOModel")
             else:
-                print(f"  Player {i}: {player.id} - Type: {player_type}")
+                print(f"  Player {i} [OPPONENT]: {player.id} - Type: {player_type}")
                 if hasattr(player, 'aggression'):
                     print(f"    - Aggression: {player.aggression}")
                 if hasattr(player, 'num_simulations'):
@@ -614,11 +616,14 @@ class PPOTrainer:
         action_counts = {at.value: 0 for at in ActionType}
         total_steps = 0
         total_rewards = 0.0
+        saturated_fold_count = 0  # Track saturated p_fold outputs
+        fold_to_nothing_count = 0  # Track fold attempts when nothing to call
         
         # Thresholds for issue detection
         FOLD_RATE_THRESHOLD = 0.5  # Warn if folding more than 50%
         MIN_AVG_EPISODE_LENGTH = 1.5  # Warn if avg episode length <= this
         MIN_REWARD_THRESHOLD = 0.001  # Warn if avg reward is below this
+        SATURATION_THRESHOLD = 0.99  # p_fold > 0.99 or < 0.01 is saturated
         
         for episode in range(num_episodes):
             print(f"\n{'='*60}")
@@ -649,10 +654,16 @@ class PPOTrainer:
                 obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
                 with torch.no_grad():
                     action, log_prob, _, value = self.model.get_action_and_value(obs_t)
+                    # Also get the actual fold probability (not the sampled action)
+                    fold_logit, _, _, _ = self.model.forward(obs_t)
+                    fold_prob_actual = torch.sigmoid(fold_logit).item()
                 action_np = action.squeeze(0).cpu().numpy()
                 
-                p_fold = float(action_np[0])
+                p_fold = float(action_np[0])  # Sampled action (0 or 1)
                 bet_scalar = float(action_np[1])
+                
+                # Calculate amount to call for debugging
+                to_call = env.current_bet - hero.bet
                 
                 # Interpret the action
                 poker_action = interpret_action(
@@ -668,14 +679,31 @@ class PPOTrainer:
                 action_type = poker_action.action_type.value
                 action_counts[action_type] += 1
                 
+                # Track saturation based on actual probability, not sampled action
+                # Saturation means fold_prob_actual is near 0 or near 1 (extreme values)
+                is_saturated = (fold_prob_actual > SATURATION_THRESHOLD) or (fold_prob_actual < (1 - SATURATION_THRESHOLD))
+                if is_saturated:
+                    saturated_fold_count += 1
+                if p_fold > 0.5 and to_call <= 0:
+                    fold_to_nothing_count += 1
+                
                 print(f"\n  Step {step}:")
                 print(f"    Round: {env.round_stage}")
                 print(f"    Board: {[Card.int_to_pretty_str(c) for c in env.board]}")
                 print(f"    Pot: ${env.pot.money}")
-                print(f"    Current bet: ${env.current_bet}, Hero's bet: ${hero.bet}")
-                print(f"    Model output: p_fold={p_fold:.3f}, bet_scalar={bet_scalar:.3f}")
+                print(f"    Current bet: ${env.current_bet}, Hero's bet: ${hero.bet}, To call: ${to_call}")
+                print(f"    Model output: fold_prob={fold_prob_actual:.3f} (sampled={int(p_fold)}), bet_scalar={bet_scalar:.3f}")
+                
+                # Warn about binary/saturated probabilities
+                if is_saturated:
+                    print(f"    ⚠️  WARNING: fold_prob is saturated (extreme value)")
+                
                 print(f"    Value estimate: {value.item():.3f}")
                 print(f"    Interpreted action: {action_type.upper()} (amount={poker_action.amount})")
+                
+                # Warn if model wanted to fold but couldn't (nothing to call)
+                if p_fold > 0.5 and to_call <= 0:
+                    print(f"    ⚠️  NOTE: Model wanted to FOLD but there's nothing to call → converted to CHECK")
                 
                 # Take step
                 next_obs, reward, terminated, truncated, info = env.step(action_np)
@@ -708,6 +736,20 @@ class PPOTrainer:
         print("\n--- POTENTIAL ISSUES ---")
         issues_found = False
         
+        # Check for saturated fold probabilities
+        saturation_rate = saturated_fold_count / max(total_steps, 1)
+        if saturation_rate > 0.5:
+            print(f"⚠️  {saturation_rate*100:.0f}% of p_fold outputs are saturated (≈0 or ≈1)")
+            print("    This indicates the network's fold head weights may need smaller initialization.")
+            print("    Nuanced fold probabilities (0.3, 0.6, 0.8) are better for learning.")
+            issues_found = True
+        
+        # Check for fold-to-nothing attempts
+        if fold_to_nothing_count > 0:
+            print(f"⚠️  Model attempted to FOLD with nothing to call {fold_to_nothing_count} time(s)")
+            print("    These were converted to CHECK (folding when no bet is illegal).")
+            issues_found = True
+        
         fold_rate = action_counts.get(ActionType.FOLD.value, 0) / max(total_steps, 1)
         if fold_rate > FOLD_RATE_THRESHOLD:
             print(f"⚠️  Hero is folding more than {FOLD_RATE_THRESHOLD*100:.0f}% of the time!")
@@ -727,7 +769,7 @@ class PPOTrainer:
             issues_found = True
             
         if not issues_found:
-            print("No obvious issues detected.")
+            print("✓ No obvious issues detected.")
         
         print("\n" + "="*80)
         print("END DEBUG MODE")
