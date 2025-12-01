@@ -21,11 +21,13 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 from simulation.poker_env import PokerEnv, PokerEnvConfig
 from training.ppo_model import PokerPPOModel
 from agents.poker_player import PokerPlayer
 from agents.monte_carlo_agent import MonteCarloAgent, RandomAgent
+from utils.device import DEVICE
 
 
 @dataclass
@@ -213,7 +215,7 @@ class PPOTrainer:
     
     def __init__(self, config: PPOConfig, device: Optional[torch.device] = None):
         self.config = config
-        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device or DEVICE
         
         # Create model
         self.model = PokerPPOModel(
@@ -442,7 +444,7 @@ class PPOTrainer:
             "kl_div": np.mean(kl_divs),
         }
     
-    def train(self):
+    def train(self, save_path: Optional[str] = None):
         """Main training loop."""
         print(f"Starting training on {self.device}")
         print(f"Total timesteps: {self.config.total_timesteps:,}")
@@ -452,28 +454,27 @@ class PPOTrainer:
         
         start_time = time.time()
         
-        for iteration in range(1, num_iterations + 1):
+        # Progress bar
+        pbar = tqdm(range(1, num_iterations + 1), desc="Training", unit="iter")
+        
+        for iteration in pbar:
             # Collect rollouts
             rollout_stats = self._collect_rollouts()
             
             # Update policy
             update_stats = self._update_policy()
             
+            # Update progress bar
+            pbar.set_postfix({
+                "reward": f"{rollout_stats['mean_reward']:.2f}",
+                "ep_len": f"{rollout_stats['mean_length']:.1f}",
+                "pg_loss": f"{update_stats['pg_loss']:.3f}",
+            })
+            
             # Logging
             if iteration % self.config.log_interval == 0:
                 elapsed = time.time() - start_time
                 fps = self.global_step / elapsed
-                
-                print(f"\n{'='*60}")
-                print(f"Iteration {iteration}/{num_iterations}")
-                print(f"Global step: {self.global_step:,}")
-                print(f"FPS: {fps:.0f}")
-                print(f"Mean reward: {rollout_stats['mean_reward']:.4f}")
-                print(f"Mean episode length: {rollout_stats['mean_length']:.1f}")
-                print(f"PG loss: {update_stats['pg_loss']:.4f}")
-                print(f"Value loss: {update_stats['value_loss']:.4f}")
-                print(f"Entropy: {update_stats['entropy']:.4f}")
-                print(f"KL div: {update_stats['kl_div']:.4f}")
                 
                 # TensorBoard logging
                 self.writer.add_scalar("rollout/mean_reward", rollout_stats["mean_reward"], self.global_step)
@@ -491,13 +492,16 @@ class PPOTrainer:
             # Evaluation
             if iteration % self.config.eval_interval == 0:
                 eval_stats = self.evaluate(self.config.eval_episodes)
-                print(f"\nEvaluation: Win rate = {eval_stats['win_rate']:.2%}, "
-                      f"Avg profit = {eval_stats['avg_profit']:.2f}")
+                tqdm.write(f"\nEvaluation: Win rate = {eval_stats['win_rate']:.2%}, "
+                           f"Avg profit = {eval_stats['avg_profit']:.2f}")
                 self.writer.add_scalar("eval/win_rate", eval_stats["win_rate"], self.global_step)
                 self.writer.add_scalar("eval/avg_profit", eval_stats["avg_profit"], self.global_step)
         
+        pbar.close()
+        
         # Final save
-        self.save_checkpoint("final.pt")
+        final_path = save_path or "final.pt"
+        self.save_checkpoint(final_path)
         print(f"\nTraining complete! Total time: {time.time() - start_time:.1f}s")
     
     def evaluate(self, num_episodes: int) -> Dict[str, float]:
@@ -567,12 +571,13 @@ def main():
     
     parser = argparse.ArgumentParser(description="Train PPO poker agent")
     parser.add_argument("--total-timesteps", type=int, default=100_000, help="Total training timesteps")
-    parser.add_argument("--num-envs", type=int, default=4, help="Number of parallel environments")
+    parser.add_argument("--num-envs", type=int, default=1, help="Number of parallel environments")
     parser.add_argument("--num-players", type=int, default=2, help="Players per table")
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
     parser.add_argument("--hidden-dim", type=int, default=256, help="Hidden layer dimension")
     parser.add_argument("--run-name", type=str, default=None, help="Run name for logging")
     parser.add_argument("--resume", type=str, default=None, help="Checkpoint to resume from")
+    parser.add_argument("--save-path", type=str, default=None, help="Custom path for final model save")
     args = parser.parse_args()
     
     config = PPOConfig(
@@ -589,7 +594,7 @@ def main():
     if args.resume:
         trainer.load_checkpoint(args.resume)
     
-    trainer.train()
+    trainer.train(save_path=args.save_path)
 
 
 if __name__ == "__main__":

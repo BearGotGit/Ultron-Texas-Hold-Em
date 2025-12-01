@@ -86,6 +86,7 @@ pip install -r requirements.txt
 ## Running the Project
 
 ### 🎮 Play Against the Bot
+
 ```bash
 python main.py
 ```
@@ -114,6 +115,7 @@ PYTHONPATH=. python training/train_rl_model.py --resume checkpoints/checkpoint_1
 ```
 
 **Training Options:**
+
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--total-timesteps` | 100,000 | Total training decisions |
@@ -124,10 +126,12 @@ PYTHONPATH=. python training/train_rl_model.py --resume checkpoints/checkpoint_1
 | `--resume` | None | Checkpoint path to resume from |
 
 **Monitor Training with TensorBoard:**
+
 ```bash
 tensorboard --logdir runs
 ```
-Then open http://localhost:6006 in your browser.
+
+Then open `http://localhost:6006` in your browser.
 
 **Checkpoints:** Saved to `checkpoints/` directory.
 
@@ -136,16 +140,19 @@ Then open http://localhost:6006 in your browser.
 ### 📊 Other Commands
 
 1️⃣ Generate Training Data (Monte Carlo simulation):
+
 ```bash
 python simulation/generate_dataset.py
 ```
 
 2️⃣ Train Supervised Model (deprecated, use RL instead):
+
 ```bash
 python training/train_model.py
 ```
 
 3️⃣ Evaluate Model Performance:
+
 ```bash
 python training/evaluate_model.py
 ```
