@@ -654,9 +654,12 @@ class PPOTrainer:
                 obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
                 with torch.no_grad():
                     action, log_prob, _, value = self.model.get_action_and_value(obs_t)
+                    # Also get the actual fold probability (not the sampled action)
+                    fold_logit, _, _, _ = self.model.forward(obs_t)
+                    fold_prob_actual = torch.sigmoid(fold_logit).item()
                 action_np = action.squeeze(0).cpu().numpy()
                 
-                p_fold = float(action_np[0])
+                p_fold = float(action_np[0])  # Sampled action (0 or 1)
                 bet_scalar = float(action_np[1])
                 
                 # Calculate amount to call for debugging
@@ -676,9 +679,9 @@ class PPOTrainer:
                 action_type = poker_action.action_type.value
                 action_counts[action_type] += 1
                 
-                # Track saturation and fold-to-nothing
-                # Saturation means p_fold is near 0 or near 1 (extreme values)
-                is_saturated = (p_fold > SATURATION_THRESHOLD) or (p_fold < (1 - SATURATION_THRESHOLD))
+                # Track saturation based on actual probability, not sampled action
+                # Saturation means fold_prob_actual is near 0 or near 1 (extreme values)
+                is_saturated = (fold_prob_actual > SATURATION_THRESHOLD) or (fold_prob_actual < (1 - SATURATION_THRESHOLD))
                 if is_saturated:
                     saturated_fold_count += 1
                 if p_fold > 0.5 and to_call <= 0:
@@ -689,11 +692,11 @@ class PPOTrainer:
                 print(f"    Board: {[Card.int_to_pretty_str(c) for c in env.board]}")
                 print(f"    Pot: ${env.pot.money}")
                 print(f"    Current bet: ${env.current_bet}, Hero's bet: ${hero.bet}, To call: ${to_call}")
-                print(f"    Model output: p_fold={p_fold:.3f}, bet_scalar={bet_scalar:.3f}")
+                print(f"    Model output: fold_prob={fold_prob_actual:.3f} (sampled={int(p_fold)}), bet_scalar={bet_scalar:.3f}")
                 
                 # Warn about binary/saturated probabilities
                 if is_saturated:
-                    print(f"    ⚠️  WARNING: p_fold is saturated (extreme value)")
+                    print(f"    ⚠️  WARNING: fold_prob is saturated (extreme value)")
                 
                 print(f"    Value estimate: {value.item():.3f}")
                 print(f"    Interpreted action: {action_type.upper()} (amount={poker_action.amount})")
