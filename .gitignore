@@ -205,3 +205,26 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# RL Training artifacts
+checkpoints/
+runs/
+*.pt
+*.pth
+*.ckpt
+
+# TensorBoard logs
+events.out.tfevents.*
+
+# Large data files
+data/raw/
+data/processed/
+*.csv
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+
+# Model weights (keep architecture, ignore weights)
+models/saved/
+*.bin
