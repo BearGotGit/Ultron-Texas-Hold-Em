@@ -7,7 +7,8 @@ and handles episodic resets properly for RL training.
 
 import pytest
 import numpy as np
-from simulation.poker_env import PokerEnv, PokerEnvConfig
+from simulation.poker_env import PokerEnv, PokerEnvConfig, interpret_action
+from agents.poker_player import PokerAction, ActionType
 from agents.monte_carlo_agent import MonteCarloAgent
 
 
@@ -290,6 +291,79 @@ def test_env_action_space_is_correct(two_player_env):
     assert env.action_space.shape == (2,)
     assert env.action_space.low.tolist() == [0.0, 0.0]
     assert env.action_space.high.tolist() == [1.0, 1.0]
+
+
+# ============================================================
+# Illegal Fold Prevention Tests - Fix for Task #2
+# ============================================================
+
+def test_interpret_action_converts_fold_to_check_when_no_bet():
+    """
+    GIVEN a model output with p_fold > 0.5 and no bet to call
+    WHEN interpret_action is called
+    THEN should return CHECK instead of FOLD (poker rules violation)
+    
+    This is the main test for Task #2: Cannot fold when there's no bet to call.
+    In Episode 9 Step 4, hero folded when current_bet=0 and my_bet=0,
+    which violates poker rules - you can only check when there's no bet.
+    """
+    # Scenario: No bet to call (to_call = 0)
+    action = interpret_action(
+        p_fold=1.0,  # Model wants to fold
+        bet_scalar=0.5,
+        current_bet=0,  # No bet to match
+        my_bet=0,  # Haven't bet anything
+        min_raise=10,
+        my_money=1000,
+    )
+    
+    # Should check, not fold
+    assert action.action_type == ActionType.CHECK, \
+        f"Expected CHECK when no bet to call, but got {action.action_type}"
+
+
+def test_interpret_action_allows_fold_when_facing_bet():
+    """
+    GIVEN a model output with p_fold > 0.5 and a bet to call
+    WHEN interpret_action is called
+    THEN should return FOLD (legal action when facing a bet)
+    """
+    # Scenario: Facing a bet (to_call > 0)
+    action = interpret_action(
+        p_fold=1.0,  # Model wants to fold
+        bet_scalar=0.5,
+        current_bet=100,  # There's a bet to match
+        my_bet=0,  # Haven't bet anything
+        min_raise=10,
+        my_money=1000,
+    )
+    
+    # Should fold when facing a bet
+    assert action.action_type == ActionType.FOLD, \
+        f"Expected FOLD when facing bet, but got {action.action_type}"
+
+
+def test_interpret_action_converts_fold_to_check_when_already_matched():
+    """
+    GIVEN a model output with p_fold > 0.5 and bet already matched
+    WHEN interpret_action is called
+    THEN should return CHECK instead of FOLD
+    
+    This handles the case where current_bet > 0 but player has already matched it.
+    """
+    # Scenario: Already matched the current bet
+    action = interpret_action(
+        p_fold=1.0,  # Model wants to fold
+        bet_scalar=0.5,
+        current_bet=50,  # Current bet is 50
+        my_bet=50,  # Already bet 50
+        min_raise=10,
+        my_money=950,
+    )
+    
+    # Should check, not fold (already matched)
+    assert action.action_type == ActionType.CHECK, \
+        f"Expected CHECK when bet already matched, but got {action.action_type}"
 
 
 if __name__ == "__main__":
