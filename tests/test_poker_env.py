@@ -242,9 +242,10 @@ def test_fold_converted_to_check_when_no_bet_to_match():
     WHEN p_fold > 0.5 (model wants to fold)
     THEN interpret_action should return CHECK, not FOLD
     
-    This is the fix for the "Illogical River Fold" issue where hero
-    folded when there was no bet to call (current_bet == my_bet).
-    In poker, you can't fold when you don't have to put in any money.
+    This is the fix for the illegal fold issue where hero tried to fold
+    when there was no bet to call (current_bet == my_bet). In poker,
+    you can't fold when you don't have to put in any money. This applies
+    to any betting round (pre-flop, flop, turn, or river).
     """
     from simulation.poker_env import interpret_action
     from agents.poker_player import ActionType
@@ -273,7 +274,7 @@ def test_fold_converted_to_check_when_no_bet_to_match():
     assert action.action_type == ActionType.CHECK, \
         f"Should check when already matched bet, got {action.action_type}"
     
-    # Case 3: Hero has over-matched the bet (happens in heads-up)
+    # Case 3: Hero has over-matched the bet (can occur after a previous raise was called)
     action = interpret_action(
         p_fold=1.0,  # Model wants to fold
         bet_scalar=0.5,
