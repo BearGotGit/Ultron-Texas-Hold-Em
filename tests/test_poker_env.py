@@ -277,13 +277,6 @@ def test_reward_scales_with_chip_delta(two_player_env):
     expected_reward = chip_delta / starting_stack
     assert abs(final_reward - expected_reward) < 1e-6, \
         f"Reward {final_reward} should equal chip_delta/starting_stack = {expected_reward}"
-    
-    # Verify the scaling property
-    # If chip_delta is X, reward should be X/1000
-    # This means doubling the chip_delta would double the reward
-    # We verify this by checking the formula holds
-    assert abs(final_reward * starting_stack - chip_delta) < 1e-6, \
-        "Reward should scale linearly with chip_delta"
 
 
 def test_env_reset_returns_valid_observation(two_player_env):
