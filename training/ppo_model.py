@@ -2,11 +2,14 @@
 PPO Model for Texas Hold'em.
 
 Architecture:
-    - Card embedding block: Linear layers for 53-dim one-hot card encodings
-    - Shared dense layers for combined observation
+    - Card embedding block: 53-dim one-hot → 64 → 64 (shared across 7 cards)
+    - Hand embedding block: 10 binary flags → 32 → 32
+    - Numeric embedding block: 42 features → 64 → 64
+    - Combined features: 448 (cards) + 32 (hands) + 64 (numeric) = 544
+    - Shared dense layers: 544 → 256 → 256
     - Three heads:
         1. Fold head: outputs logit for p_fold (Bernoulli)
-        2. Bet head: outputs mean and std for bet_scalar (Beta distribution)
+        2. Bet head: outputs alpha and beta for bet_scalar (Beta distribution)
         3. Value head: outputs V(s) estimate for critic
 """
 
@@ -81,18 +84,31 @@ class PokerPPOModel(nn.Module):
         # Card embedding (shared across all 7 card slots)
         self.card_embedding = CardEmbedding(card_embed_dim)
         
+        # Hand feature embedding (10 binary flags -> 32-dim embedding)
+        self.hand_embedding = nn.Sequential(
+            nn.Linear(NUM_HAND_FEATURES, 32),
+            nn.ReLU(),
+            nn.Linear(32, 32),
+        )
+        
+        # Numeric feature embedding (player + global features -> 64-dim embedding)
+        numeric_input_dim = MAX_PLAYERS * FEATURES_PER_PLAYER + GLOBAL_NUMERIC_FEATURES  # 36 + 6 = 42
+        self.numeric_embedding = nn.Sequential(
+            nn.Linear(numeric_input_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+        )
+        
         # Calculate input dimensions
         self.card_features = NUM_CARD_SLOTS * card_embed_dim  # 7 * 64 = 448
-        self.hand_features = NUM_HAND_FEATURES  # 10
-        self.player_features = MAX_PLAYERS * FEATURES_PER_PLAYER  # 9 * 4 = 36
-        self.global_features = GLOBAL_NUMERIC_FEATURES  # 6
+        self.hand_embed_features = 32  # embedded hand features
+        self.numeric_embed_features = 64  # embedded numeric features
         
         self.combined_features = (
             self.card_features +
-            self.hand_features +
-            self.player_features +
-            self.global_features
-        )  # 448 + 10 + 36 + 6 = 500
+            self.hand_embed_features +
+            self.numeric_embed_features
+        )  # 448 + 32 + 64 = 544
         
         # Shared trunk layers
         shared_layers = []
@@ -166,20 +182,37 @@ class PokerPPOModel(nn.Module):
         # Concatenate: (batch, 7 * card_embed_dim)
         return torch.cat(card_embeddings, dim=1)
     
-    def _extract_non_card_features(self, obs: torch.Tensor) -> torch.Tensor:
+    def _extract_hand_features(self, obs: torch.Tensor) -> torch.Tensor:
         """
-        Extract non-card features from observation.
+        Extract hand features from observation.
         
         Args:
             obs: (batch, obs_dim) full observation tensor
             
         Returns:
-            (batch, non_card_features) features tensor
+            (batch, NUM_HAND_FEATURES) hand features tensor
         """
         card_obs_dim = NUM_CARD_SLOTS * CARD_ENCODING_DIM  # 371
+        hand_start = card_obs_dim
+        hand_end = hand_start + NUM_HAND_FEATURES  # 371 + 10 = 381
         
-        # Everything after card one-hots
-        return obs[:, card_obs_dim:]  # (batch, 10 + 36 + 6 = 52)
+        return obs[:, hand_start:hand_end]  # (batch, 10)
+    
+    def _extract_numeric_features(self, obs: torch.Tensor) -> torch.Tensor:
+        """
+        Extract numeric features (player + global) from observation.
+        
+        Args:
+            obs: (batch, obs_dim) full observation tensor
+            
+        Returns:
+            (batch, numeric_features) numeric features tensor
+        """
+        card_obs_dim = NUM_CARD_SLOTS * CARD_ENCODING_DIM  # 371
+        numeric_start = card_obs_dim + NUM_HAND_FEATURES  # 371 + 10 = 381
+        
+        # Player features + global features
+        return obs[:, numeric_start:]  # (batch, 36 + 6 = 42)
     
     def forward(
         self,
@@ -198,13 +231,18 @@ class PokerPPOModel(nn.Module):
             value: (batch, 1) state value estimate
         """
         # Embed cards
-        card_features = self._embed_cards(obs)  # (batch, 7 * card_embed_dim)
+        card_features = self._embed_cards(obs)  # (batch, 448)
         
-        # Extract other features
-        other_features = self._extract_non_card_features(obs)  # (batch, 52)
+        # Extract and embed hand features
+        hand_raw = self._extract_hand_features(obs)  # (batch, 10)
+        hand_features = self.hand_embedding(hand_raw)  # (batch, 32)
         
-        # Concatenate all features
-        combined = torch.cat([card_features, other_features], dim=1)  # (batch, 500)
+        # Extract and embed numeric features
+        numeric_raw = self._extract_numeric_features(obs)  # (batch, 42)
+        numeric_features = self.numeric_embedding(numeric_raw)  # (batch, 64)
+        
+        # Concatenate all embedded features
+        combined = torch.cat([card_features, hand_features, numeric_features], dim=1)  # (batch, 544)
         
         # Shared trunk
         hidden = self.shared_trunk(combined)  # (batch, hidden_dim)
