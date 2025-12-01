@@ -85,18 +85,74 @@ pip install -r requirements.txt
 
 ## Running the Project
 
-- Note, might migrate this to the module way later, but right now these work:
-- Only main works right now (2025-11-22)
+### 🎮 Play Against the Bot
 
-1️⃣ Generate Training Data
-Monte Carlo simulation:
-`python simulation/generate_dataset.py`
+```bash
+python main.py
+```
 
-2️⃣ Train the Model
-`python training/train_model.py`
+### 🧠 Train the RL Agent (PPO)
 
-3️⃣ Evaluate Model Performance
-`python training/evaluate_model.py`
+Train a poker bot using Proximal Policy Optimization:
 
-4️⃣ Run the Poker Agent
-`python main.py`
+```bash
+# Quick test run (10k timesteps, ~30 seconds)
+PYTHONPATH=. python training/train_rl_model.py --total-timesteps 10000
+
+# Full training run (1M timesteps, ~1-2 hours on CPU)
+PYTHONPATH=. python training/train_rl_model.py --total-timesteps 1000000
+
+# Custom training options
+PYTHONPATH=. python training/train_rl_model.py \
+    --total-timesteps 500000 \
+    --num-players 2 \
+    --lr 0.0003 \
+    --hidden-dim 256 \
+    --run-name my_training_run
+
+# Resume from checkpoint
+PYTHONPATH=. python training/train_rl_model.py --resume checkpoints/checkpoint_100.pt
+```
+
+**Training Options:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--total-timesteps` | 100,000 | Total training decisions |
+| `--num-players` | 2 | Players per table (hero + opponents) |
+| `--lr` | 0.0003 | Learning rate |
+| `--hidden-dim` | 256 | Neural network hidden layer size |
+| `--run-name` | auto | Name for TensorBoard logs |
+| `--resume` | None | Checkpoint path to resume from |
+
+**Monitor Training with TensorBoard:**
+
+```bash
+tensorboard --logdir runs
+```
+
+Then open `http://localhost:6006` in your browser.
+
+**Checkpoints:** Saved to `checkpoints/` directory.
+
+---
+
+### 📊 Other Commands
+
+1️⃣ Generate Training Data (Monte Carlo simulation):
+
+```bash
+python simulation/generate_dataset.py
+```
+
+2️⃣ Train Supervised Model (deprecated, use RL instead):
+
+```bash
+python training/train_model.py
+```
+
+3️⃣ Evaluate Model Performance:
+
+```bash
+python training/evaluate_model.py
+```
