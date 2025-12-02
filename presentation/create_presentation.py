@@ -560,8 +560,8 @@ add_code_slide(
                 entropy_loss = entropy.mean()
                 
                 # Total loss: policy - entropy_bonus + value
-                loss = pg_loss - self.config.ent_coef * entropy_loss \\
-                       + self.config.vf_coef * v_loss
+                loss = (pg_loss - self.config.ent_coef * entropy_loss
+                        + self.config.vf_coef * v_loss)
                 
                 # Optimize
                 self.optimizer.zero_grad()
