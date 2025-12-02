@@ -135,6 +135,30 @@ Then open `http://localhost:6006` in your browser.
 
 **Checkpoints:** Saved to `checkpoints/` directory.
 
+### 🎮 Play Against Your Trained Model
+
+Test your trained RL agent by playing against it:
+
+```bash
+# Play against a trained model (10 hands)
+PYTHONPATH=. python play_vs_rl.py checkpoints/2025-12-1/100k/final.pt
+
+# Custom game settings
+PYTHONPATH=. python play_vs_rl.py checkpoints/2025-12-1/100k/final.pt \
+    --hands 20 \
+    --stack 2000 \
+    --big-blind 20
+```
+
+**Play Options:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `model_path` | (required) | Path to trained model checkpoint |
+| `--hands` | 10 | Number of hands to play |
+| `--stack` | 1000 | Starting chip stack |
+| `--big-blind` | 10 | Big blind amount |
+
 ---
 
 ### 📊 Other Commands
