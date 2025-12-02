@@ -228,3 +228,6 @@ data/processed/
 # Model weights (keep architecture, ignore weights)
 models/saved/
 *.bin
+
+# Generated PDF files
+*_source_code.pdf
