@@ -156,3 +156,24 @@ python training/train_model.py
 ```bash
 python training/evaluate_model.py
 ```
+
+4️⃣ Generate PDF of Repository Source Code:
+
+```bash
+# Generate PDF with default settings (outputs to current directory)
+python generate_pdf.py
+
+# Specify output file location
+python generate_pdf.py --output my_source_code.pdf
+
+# Exclude specific directories
+python generate_pdf.py --exclude tests --exclude data
+
+# Include additional file extensions
+python generate_pdf.py --include-ext sql --include-ext html
+```
+
+The PDF includes:
+- Title page with repository information
+- Table of contents listing all files
+- All source files with syntax formatting and line numbers
