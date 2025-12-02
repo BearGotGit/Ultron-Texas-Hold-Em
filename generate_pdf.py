@@ -154,13 +154,9 @@ class RepositoryPDF(FPDF):
     def _add_code_line(self, line_num: str, text: str):
         """Add a single line of code with line number."""
         # Sanitize text for PDF (remove characters that cause issues)
-        safe_text = ''
-        for char in text:
-            if ord(char) < 128:  # Only ASCII characters
-                safe_text += char
-            else:
-                # Replace non-ASCII with a placeholder
-                safe_text += '?'
+        # Use list comprehension and join for better performance
+        safe_chars = [char if ord(char) < 128 else '?' for char in text]
+        safe_text = ''.join(safe_chars)
 
         try:
             self.cell(0, 4, f'{line_num} | {safe_text}')
@@ -225,11 +221,7 @@ def read_file_content(repo_path: str, file_path: str) -> str:
     """
     full_path = Path(repo_path) / file_path
     try:
-        with open(full_path, 'r', encoding='utf-8') as f:
-            return f.read()
-    except UnicodeDecodeError:
-        # Try with latin-1 encoding as fallback
-        with open(full_path, 'r', encoding='latin-1') as f:
+        with open(full_path, 'r', encoding='utf-8', errors='replace') as f:
             return f.read()
     except Exception as e:
         return f'[Error reading file: {e}]'
