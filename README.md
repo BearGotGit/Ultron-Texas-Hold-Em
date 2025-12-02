@@ -25,6 +25,20 @@ Our approach uses **Monte Carlo simulation**, **supervised learning**, and **neu
 
 ---
 
+## 📐 System Architecture
+
+For detailed UML diagrams showing the system architecture, class hierarchies, and sequence diagrams, see:
+
+📄 **[docs/UML.md](docs/UML.md)**
+
+This includes:
+- Class diagrams for all modules (Agents, Simulation, Training)
+- Component diagram showing module dependencies
+- Sequence diagrams for game flow and RL training
+- Observation and action space visualizations
+
+---
+
 ## Project Structure
 
 ```bash
