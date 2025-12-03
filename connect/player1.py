@@ -1,4 +1,5 @@
 import json
+from pprint import pprint
 import sys
 import threading
 import time
@@ -11,8 +12,8 @@ from typing import Optional, Tuple, Any, Dict
 
 load_dotenv()
 BASEURL = os.getenv("BASEURL")
-API_KEY = os.getenv("API_KEY")
-TABLE_ID = os.getenv("TABLE_ID")
+API_KEY = os.getenv("APIKEY")
+TABLE_ID = os.getenv("TABLEID")
 
 if not BASEURL:
     raise RuntimeError("BASEURL environment variable is not set")
@@ -23,7 +24,7 @@ if not API_KEY:
 if not TABLE_ID:
     raise RuntimeError("TABLE_ID environment variable is not set")
 
-WS_URL_TEMPLATE = BASEURL + "/ss?apiKey={apiKey}&table={table}&player={player}"
+WS_URL_TEMPLATE = BASEURL + "/ws?apiKey={apiKey}&table={table}&player={player}"
 
 
 def safe_card_str(c: dict) -> str:
@@ -69,6 +70,10 @@ class RandomBot(BaseBot):
     def decide_action(self, game_view: Dict[str, Any]) -> Tuple[str, int]:
         # VERY dumb strategy, just to show the interface.
         # You can inspect game_view["state"] here for something smarter.
+        
+        
+        # pprint("\n\n\nGame view:\n", game_view, "\n\n\n")
+        
         choice = random.random()
         if choice < 0.2:
             return "FOLD", 0
@@ -113,6 +118,8 @@ class PlayerClient:
         if data.get("type") != "state":
             print(f"[{self.player_id}] msg:", data)
             return
+
+        pprint(f"\n\n\n: {data} \n\n\n")
 
         state = data["state"]
         table = state["table"]
