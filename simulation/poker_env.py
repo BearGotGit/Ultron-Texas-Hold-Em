@@ -784,8 +784,8 @@ class PokerEnv(gym.Env):
         Returns:
             observation, reward, terminated, truncated, info
             
-            Note: reward is always 0.0 unless hand is complete.
-            For per-player rewards, use get_reward_for_player() after hand ends.
+            Note: reward is always 0.0 since this is a player-agnostic method.
+            Use get_reward_for_player(idx) after hand ends to get per-player rewards.
         """
         if self.game_over or self.hand_complete:
             return self._get_observation(), 0.0, True, False, self._get_info()
@@ -805,16 +805,14 @@ class PokerEnv(gym.Env):
         # Advance game state to next active player
         self._advance_game()
         
-        # Calculate reward (0 until hand complete, then based on hero)
-        reward = self._calculate_reward()
-        
         # Check termination
         terminated = self.game_over or self.hand_complete
         
         obs = self._get_observation()
         info = self._get_info()
         
-        return obs, reward, terminated, truncated, info
+        # Return 0.0 reward - training loop should use get_reward_for_player()
+        return obs, 0.0, terminated, truncated, info
     
     def _advance_game(self):
         """
