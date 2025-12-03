@@ -8,6 +8,7 @@ import numpy as np
 from agents.agent import PokerAgent
 from simulation.poker_env import PokerEnv, PokerEnvConfig, interpret_action
 from agents.monte_carlo_agent import RandomAgent
+from training.ppo_model import PokerPPOModel
 
 
 class RLAgent(PokerAgent):
@@ -15,7 +16,7 @@ class RLAgent(PokerAgent):
     RL agent that uses a trained PPO model to make poker decisions.
     """
     
-    def __init__(self, name, starting_chips, model, device):
+    def __init__(self, name, starting_chips, model: PokerPPOModel, device):
         """
         Initialize RL agent.
         
