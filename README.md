@@ -161,7 +161,7 @@ PYTHONPATH=. python play_vs_rl.py checkpoints/2025-12-1/100k/final.pt \
 
 ---
 
-### 📊 Other Commands (Not using this rn)
+### 📊 Other Commands
 
 1️⃣ Generate Training Data (Monte Carlo simulation):
 
