@@ -118,6 +118,7 @@ class PokerAgent:
                 action: 'fold', 'call', 'raise', 'check'
                 amount: Amount to bet (0 for fold/check/call, raise amount for raise)
         """
+        print("What==================================lajsdnj")
         # Default strategy: simple equity-based decisions
         if self.is_folded or self.is_all_in:
             return ('check', 0)

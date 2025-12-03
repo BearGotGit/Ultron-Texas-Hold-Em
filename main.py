@@ -7,6 +7,7 @@ from treys import Card
 from agents import PokerAgent
 from agents.human_player import HumanPlayer
 from simulation import TexasHoldemSimulation
+from agents.loaded_agent import LoadAgentPlayer
 
 
 def run_single_hand(agents, game, hand_number=1, show_equity=True):
@@ -310,8 +311,21 @@ def play_interactive(num_opponents=3, starting_chips=1000, num_hands=10):
     
     # Create agents - Human player first, then AI opponents
     agents = [HumanPlayer(name="You", starting_chips=starting_chips)]
-    agents.extend([PokerAgent(name=f"AI {i+1}", starting_chips=starting_chips) for i in range(num_opponents)])
+    #agents.extend([PokerAgent(name=f"AI {i+1}", starting_chips=starting_chips) for i in range(num_opponents-1)])
+    for i in range(num_opponents-1):
+        trained_agent = LoadAgentPlayer(name=f"PPOAgent {i+1}", starting_chips=starting_chips, checkpoint_path="checkpoints/final.pt")
+        trained_agent.AI_index = i
+        agents.extend([trained_agent])
     
+    for agent in agents:
+        #trained_agent.players = agents
+        agent.players = agents
+        
+        
+    
+    # Create Agent as an AI
+    #agents.extend([LoadAgentPlayer(name=f"PPOAgent {i+1}", starting_chips=starting_chips, checkpoint_path="checkpoints/final.pt") for i in range(1)])
+
     # Create game simulation
     game = TexasHoldemSimulation(agents, small_blind=5, big_blind=10)
     
@@ -376,7 +390,7 @@ def play_interactive(num_opponents=3, starting_chips=1000, num_hands=10):
 
 if __name__ == "__main__":
     # INTERACTIVE MODE - Play against AI!
-    play_interactive(num_opponents=3, starting_chips=1000, num_hands=10)
+    play_interactive(num_opponents=4, starting_chips=1000, num_hands=10)
     
     # Run a single hand (AI only)
     # run_full_game(num_players=4, starting_chips=1000)
