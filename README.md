@@ -180,3 +180,38 @@ python training/train_model.py
 ```bash
 python training/evaluate_model.py
 ```
+
+---
+
+## 🛠️ Development
+
+### Validate Training Pipeline
+
+Quickly verify that training is working correctly:
+
+```bash
+python scripts/validate_training.py
+```
+
+This script:
+- Trains the model for ~50 iterations (~50 seconds)
+- Compares model weights before and after training
+- Plays 10 hands against a random opponent
+- Reports: "✓ Weights updated" or "✗ Weights frozen"
+
+**Expected output:**
+```
+✓ Weights updated (training is working!)
+  Maximum weight change: 0.116307
+Game Results:
+  Wins: 5/10
+  Win Rate: 50.0%
+  Average Profit: 10.0 chips
+✓ VALIDATION PASSED: Training pipeline is working correctly!
+```
+
+### Run Tests
+
+```bash
+PYTHONPATH=. python -m pytest tests/ -v
+```
