@@ -177,9 +177,9 @@ class RLAgent(PokerPlayer):
             return ('check', 0)
         
         # Sync temporary environment state with current game state
-        # Note: Using self._private_cards for hole cards (PokerPlayer attribute)
+        # Use get_hole_cards() for consistency with the PokerAgent interface
         self._sync_temp_env(
-            self._private_cards,
+            self.get_hole_cards(),
             board,
             pot_size,
             self.bet + current_bet_to_call,  # Total bet needed
@@ -254,7 +254,11 @@ class RLAgent(PokerPlayer):
     
     def receive_cards(self, cards):
         """Receive hole cards (PokerAgent compatibility)."""
-        self.deal_hand(tuple(cards))
+        # Handle both list and tuple input
+        if isinstance(cards, (list, tuple)):
+            self.deal_hand(tuple(cards))
+        else:
+            self.deal_hand(cards)
     
     def get_hole_cards(self):
         """Get hole cards (works with both interfaces)."""
@@ -337,11 +341,30 @@ class RLAgent(PokerPlayer):
         self.add_winnings(amount)
     
     def place_bet(self, amount):
-        """Place a bet (PokerAgent compatibility)."""
-        from agents.poker_player import Pot
-        pot = Pot()
-        actual = self.move_money(pot, amount)
-        return actual
+        """
+        Place a bet (PokerAgent compatibility).
+        
+        Matches PokerAgent interface by directly modifying internal state.
+        
+        Args:
+            amount: Amount to bet
+            
+        Returns:
+            Actual amount bet (may be less if all-in)
+        """
+        # Prevent negative bets
+        if amount < 0:
+            return 0
+        
+        actual_bet = min(amount, self.money)
+        self.money -= actual_bet
+        self.bet += actual_bet
+        self.total_invested += actual_bet
+        
+        if self.money == 0:
+            self.all_in = True
+        
+        return actual_bet
     
     def __str__(self):
         """String representation."""
