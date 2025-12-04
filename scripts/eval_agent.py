@@ -23,7 +23,7 @@ args = parser.parse_args()
 torch.manual_seed(args.seed)
 np.random.seed(args.seed)
 
-# Load model
+# Load model; prefer RLAgent loader when available
 if not os.path.exists(args.checkpoint):
     raise SystemExit('Checkpoint not found: ' + args.checkpoint)
 
@@ -37,15 +37,31 @@ try:
 except Exception:
     pass
 
-ck = torch.load(args.checkpoint, map_location=args.device, weights_only=False)
-state = ck.get('model_state_dict', ck.get('state_dict', None))
-if state is None:
-    raise SystemExit('No model_state_dict found in checkpoint')
+try:
+    from agents.rl_agent import RLAgent
+except Exception:
+    RLAgent = None
 
-model = PokerPPOModel()
-model.load_state_dict(state)
-model.to(args.device)
-model.eval()
+model = None
+if RLAgent is not None:
+    try:
+        agent = RLAgent.from_checkpoint(args.checkpoint, player_id='eval-agent', starting_money=1000, device=args.device)
+        model = agent.model
+        model.to(args.device)
+        model.eval()
+        print('Loaded model via RLAgent.from_checkpoint')
+    except Exception:
+        model = None
+
+if model is None:
+    ck = torch.load(args.checkpoint, map_location=args.device, weights_only=False)
+    state = ck.get('model_state_dict', ck.get('state_dict', None))
+    if state is None:
+        raise SystemExit('No model_state_dict found in checkpoint')
+    model = PokerPPOModel()
+    model.load_state_dict(state)
+    model.to(args.device)
+    model.eval()
 
 # Evaluation loop
 episodes = args.episodes

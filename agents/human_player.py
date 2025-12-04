@@ -119,28 +119,45 @@ class HumanPlayer(PokerAgent):
                 max_raise = self.get_chips() - current_bet_to_call
                 print(f"Minimum raise: ${min_raise}")
                 print(f"Maximum raise: ${max_raise} (all-in)")
-                
+
+                # If player cannot reach the minimum raise, offer all-in as the only raise option
+                if max_raise < min_raise:
+                    if max_raise <= 0:
+                        print("You do not have enough chips to raise. Choose a different action.")
+                        continue
+
+                    confirm = input(
+                        f"You cannot meet the minimum raise (${min_raise}).\n"
+                        f"You may go ALL-IN for ${max_raise}. Continue? (y/n): "
+                    ).strip().lower()
+                    if confirm == 'y':
+                        return ('raise', max_raise)
+                    else:
+                        # Let the player choose another action
+                        continue
+
+                # Normal raise path: player can choose any amount between min_raise and max_raise
                 while True:
                     try:
                         raise_amount = input(f"Raise amount (${min_raise}-${max_raise}): ").strip()
                         raise_amount = int(raise_amount)
-                        
+
                         if raise_amount < min_raise:
                             print(f"Raise must be at least ${min_raise}")
                             continue
-                        
+
                         if raise_amount > max_raise:
                             print(f"Raise cannot exceed ${max_raise}")
                             continue
-                        
+
                         # Confirm all-in
                         if raise_amount == max_raise:
                             confirm = input(f"Raising ${raise_amount} will put you ALL-IN. Continue? (y/n): ").strip().lower()
                             if confirm != 'y':
                                 break
-                        
+
                         return ('raise', raise_amount)
-                    
+
                     except ValueError:
                         print("Please enter a valid number")
                     except KeyboardInterrupt:

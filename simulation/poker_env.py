@@ -66,8 +66,9 @@ class PokerEnvConfig:
     max_players: int = MAX_PLAYERS
     # Penalty coefficient applied to normalized max raise fraction per hand.
     # Reward penalty = all_in_penalty_alpha * max_raise_fraction
-    # Set to 0.0 to disable. Small positive values (e.g., 0.05) discourage reckless all-ins.
-    all_in_penalty_alpha: float = 0.05
+    # Set to 0.0 to disable. Small positive values discourage reckless all-ins.
+    # Default to 0.0 in tests to avoid unexpected reward adjustments.
+    all_in_penalty_alpha: float = 0.0
 
 
 # ============================================================

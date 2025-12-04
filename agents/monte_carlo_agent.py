@@ -43,9 +43,9 @@ class MonteCarloAgent(PokerPlayer):
         self,
         player_id: str,
         starting_money: int = 1000,
-        num_simulations: int = 500,
-        aggression: float = 0.5,
-        bluff_frequency: float = 0.1,
+        num_simulations: int = 2000,
+        aggression: float = 0.6,
+        bluff_frequency: float = 0.05,
     ):
         """
         Initialize Monte Carlo agent.
@@ -264,47 +264,61 @@ class MonteCarloAgent(PokerPlayer):
         Returns:
             Estimated equity (0.0 to 1.0)
         """
-        if len(hole_cards) < 2 or len(board) < 3:
-            return 0.5  # Default equity
-        
-        # Get remaining deck cards
+        # If hole cards incomplete, return neutral equity
+        if len(hole_cards) < 2:
+            return 0.5
+
+        # Allow equity estimation at all stages (pre-flop, flop, turn, river)
         used_cards = set(hole_cards) | set(board)
         full_deck = Deck().cards
         remaining = [c for c in full_deck if c not in used_cards]
-        
+
         cards_to_deal = 5 - len(board)
+
+        # Increase sims modestly on later streets (more informative)
+        stage_multiplier = 1.0
+        if len(board) >= 4:  # turn or river
+            stage_multiplier = 1.5
+        elif len(board) == 3:  # flop
+            stage_multiplier = 1.0
+        else:  # pre-flop
+            stage_multiplier = 0.7
+
+        sims = max(100, int(self.num_simulations * stage_multiplier))
+
         wins = 0
         ties = 0
         total = 0
-        
-        for _ in range(self.num_simulations):
-            # Sample opponent hands and remaining board
-            sampled = random.sample(remaining, 2 * num_opponents + cards_to_deal)
-            
-            # Assign opponent hands
-            opponent_hands = [
-                sampled[i*2:(i+1)*2] for i in range(num_opponents)
-            ]
-            
-            # Complete the board
-            full_board = board + sampled[2*num_opponents:]
-            
-            # Evaluate all hands
+
+        for _ in range(sims):
+            # Sample opponent hands and remaining board without replacement
+            try:
+                sampled = random.sample(remaining, 2 * num_opponents + cards_to_deal)
+            except ValueError:
+                # Not enough cards to sample - fallback to uniform random choice
+                sampled = []
+                pool = remaining[:]
+                for _ in range(2 * num_opponents + cards_to_deal):
+                    if not pool:
+                        break
+                    idx = random.randrange(len(pool))
+                    sampled.append(pool.pop(idx))
+
+            opponent_hands = [sampled[i * 2:(i + 1) * 2] for i in range(num_opponents)]
+            full_board = board + sampled[2 * num_opponents:]
+
             my_score = self.evaluator.evaluate(full_board, hole_cards)
-            opponent_scores = [
-                self.evaluator.evaluate(full_board, hand)
-                for hand in opponent_hands
-            ]
-            
-            best_opponent = min(opponent_scores) if opponent_scores else float('inf')
-            
+            opponent_scores = [self.evaluator.evaluate(full_board, hand) for hand in opponent_hands]
+
+            best_opponent = min(opponent_scores) if opponent_scores else float("inf")
+
             if my_score < best_opponent:
                 wins += 1
             elif my_score == best_opponent:
                 ties += 0.5
-            
+
             total += 1
-        
+
         return (wins + ties) / total if total > 0 else 0.5
     
     def _make_decision(

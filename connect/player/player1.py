@@ -2,6 +2,19 @@ import json
 import sys
 import threading
 import time
+# --- Fix for PPOConfig unpickling errors ---
+try:
+    # Import the module containing PPOConfig
+    from training.train_rl_model import PPOConfig
+    import __main__ as _main
+
+    # Make __main__.PPOConfig point to the real class
+    if not hasattr(_main, "PPOConfig"):
+        _main.PPOConfig = PPOConfig
+except Exception:
+    pass
+# ------------------------------------------
+
 try:
     # Preferred import from websocket-client
     from websocket import WebSocketApp, WebSocketConnectionClosedException
@@ -25,6 +38,8 @@ except Exception:
             "websocket client library not found or incompatible. Please install 'websocket-client'"
         ) from _e
 import ssl  # 👈 make sure this is imported
+from treys import Card
+from connect.adapters import to_treys_card, normalize_action, game_view_from_server
 from dotenv import load_dotenv
 import os
 import random
@@ -33,28 +48,19 @@ from pathlib import Path
 import glob
 import os
 
-# Optional RL bot import
+# Optional RL agent import (use canonical API)
 try:
-    from agents.rl_agent import RLBot, load_model
+    from agents.rl_agent import RLAgent
 except Exception:
-    RLBot = None
-    load_model = None
+    RLAgent = None
 
 load_dotenv()
+# Read env vars at import time but do not raise here; runtime checks happen in run_ws
 BASEURL = os.getenv("BASEURL")
 API_KEY = os.getenv("APIKEY")
 TABLE_ID = os.getenv("TABLEID")
 
-if not BASEURL:
-    raise RuntimeError("BASEURL environment variable is not set")
-
-if not API_KEY:
-    raise RuntimeError("API_KEY environment variable is not set")
-
-if not TABLE_ID:
-    raise RuntimeError("TABLE_ID environment variable is not set")
-
-WS_URL_TEMPLATE = BASEURL + "/ws?apiKey={apiKey}&table={table}&player={player}"
+WS_URL_TEMPLATE = (BASEURL or "") + "/ws?apiKey={apiKey}&table={table}&player={player}"
 
 
 def safe_card_str(c: dict) -> str:
@@ -108,6 +114,66 @@ class RandomBot(BaseBot):
         else:
             amt = random.randint(1, self.max_raise)
             return "RAISE", amt
+
+
+class RLAgentAdapter(BaseBot):
+    """Adapter to wrap an `agents.rl_agent.RLAgent` instance and expose
+    the older `decide_action(game_view)` interface used by this client.
+    """
+
+    def __init__(self, rl_agent):
+        self.rl_agent = rl_agent
+
+    def _to_treys_card(self, c):
+        return to_treys_card(c)
+
+    def decide_action(self, game_view: Dict[str, Any]) -> Tuple[str, int]:
+        state = game_view.get("state", {})
+        table = game_view.get("table", {})
+        self_player = game_view.get("self_player") or {}
+
+        # Convert hole cards and board to treys ints
+        hole_cards_raw = self_player.get("cards") or self_player.get("hole_cards") or []
+        treys_hole = [to_treys_card(c) for c in hole_cards_raw]
+
+        board_raw = state.get("board", [])
+        treys_board = [to_treys_card(c) for c in board_raw]
+
+        # Populate RLAgent internal state
+        agent = self.rl_agent
+        agent.hole_cards = treys_hole
+        try:
+            agent.chips = int(self_player.get("chips", agent.chips))
+        except Exception:
+            pass
+        try:
+            agent.current_bet = int(self_player.get("bet", self_player.get("current_bet", agent.current_bet)))
+        except Exception:
+            pass
+        agent.is_folded = bool(self_player.get("folded") or self_player.get("isFolded") or self_player.get("fold", False))
+        agent.is_all_in = bool(self_player.get("allIn") or self_player.get("isAllIn") or self_player.get("all_in", False))
+
+        # Compute to-call
+        players = table.get("players") or []
+        bets = [p.get("bet", 0) for p in players if p]
+        current_bet = max(bets) if bets else 0
+        my_bet = int(self_player.get("bet", 0)) if self_player else 0
+        current_bet_to_call = max(0, current_bet - my_bet)
+
+        min_raise = state.get("minRaise") or state.get("min_raise") or table.get("minRaise") or 0
+
+        try:
+            action, amount = agent.make_decision(treys_board, state.get("pot", 0), current_bet_to_call, min_raise)
+        except Exception:
+            return "CALL", 0
+
+        # Normalize action names to the CLI expected tokens
+        act = (action or "").strip()
+        # normalize to server expected token (lower-case)
+        act_norm = normalize_action(act)
+        if act_norm != "raise":
+            amount = 0
+        return act_norm, int(amount)
 
 
 class PlayerClient:
@@ -239,7 +305,7 @@ class PlayerClient:
             return
         msg = {
             "type": "act",
-            "action": action,
+            "action": normalize_action(action),
             "amount": amount,
         }
         try:
@@ -341,25 +407,21 @@ def build_bot_from_args(args: list[str]) -> Optional[BaseBot]:
 
     # RL bot: `rl [checkpoint_path]`
     if bot_name in ("rl", "rlbot"):
-        if RLBot is None or load_model is None:
-            print("[main] RL bot support not available (agents.rl_agent import failed).")
+        if RLAgent is None:
+            print("[main] RL agent support not available (agents.rl_agent import failed).")
             return None
+
         # checkpoint may be provided as second arg, otherwise try env or default
-        # helper: choose candidate from CLI arg, env var, or latest in checkpoints/
         def find_latest_checkpoint(candidate: Optional[str]) -> Optional[str]:
-            # If explicit candidate provided and is file, use it
             if candidate:
                 p = Path(candidate)
                 if p.is_file():
                     return str(p)
-                # if it's a directory, search inside
                 if p.is_dir():
                     search_dir = p
                 else:
-                    # fallthrough to default dir
                     search_dir = Path("checkpoints")
             else:
-                # try env var
                 env_ckpt = os.getenv("MODEL_CHECKPOINT")
                 if env_ckpt:
                     p = Path(env_ckpt)
@@ -375,7 +437,6 @@ def build_bot_from_args(args: list[str]) -> Optional[BaseBot]:
             if not search_dir.exists() or not search_dir.is_dir():
                 return None
 
-            # look for common extensions
             patterns = ["*.pt", "*.pth"]
             candidates = []
             for pat in patterns:
@@ -384,7 +445,6 @@ def build_bot_from_args(args: list[str]) -> Optional[BaseBot]:
             if not candidates:
                 return None
 
-            # choose latest by modification time
             candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
             return str(candidates[0])
 
@@ -396,10 +456,15 @@ def build_bot_from_args(args: list[str]) -> Optional[BaseBot]:
 
         print(f"[main] Using RL checkpoint: {chosen}")
         try:
-            model, device = load_model(str(chosen))
-            return RLBot(model, device)
+            # Load RLAgent using the canonical API
+            agent = RLAgent.from_checkpoint(
+                checkpoint_path=str(chosen),
+                player_id="Ultron",       # or the bot's name
+                starting_money=1000,      # must match server stack size
+            )
+            return RLAgentAdapter(agent)
         except Exception as e:
-            print(f"[main] Failed to load RL model: {e}")
+            print(f"[main] Failed to load RL agent: {e}")
             return None
 
     # Extend here: elif bot_name == "mybot": return MyBot(...)

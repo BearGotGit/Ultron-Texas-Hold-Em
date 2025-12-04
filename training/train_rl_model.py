@@ -634,7 +634,24 @@ class PPOTrainer:
     
     def load_checkpoint(self, path: str):
         """Load model checkpoint."""
-        checkpoint = torch.load(path, map_location=self.device)
+        # Provide a reference to PPOConfig in __main__ to support older
+        # checkpoints that were pickled with __main__.PPOConfig. This avoids
+        # torch UnpicklingErrors when loading legacy checkpoints.
+        try:
+            import __main__ as _m
+            if not hasattr(_m, 'PPOConfig'):
+                setattr(_m, 'PPOConfig', PPOConfig)
+        except Exception:
+            pass
+
+        try:
+            checkpoint = torch.load(path, map_location=self.device)
+        except Exception as e:
+            # Fall back to a less-restrictive load for legacy checkpoints
+            try:
+                checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+            except Exception:
+                raise
 
         # Always load model weights if present
         if "model_state_dict" in checkpoint:

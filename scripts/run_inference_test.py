@@ -50,43 +50,52 @@ else:
 
 print('Sample observation shape:', sample.shape)
 
-# Load model class
-from training.ppo_model import PokerPPOModel
-
-# Load checkpoint
+# Load checkpoint and prefer RLAgent when available
 ckpt_path = 'checkpoints/final.pt'
 if not os.path.exists(ckpt_path):
     raise SystemExit('Checkpoint not found: ' + ckpt_path)
 
-# try weights-only load for checkpoint
 try:
-    ck = torch.load(ckpt_path, map_location='cpu', weights_only=True)
-    print('Loaded checkpoint weights_only')
-    # If weights_only returns a dict of tensors (state_dict)
-    state_dict = ck
+    from agents.rl_agent import RLAgent
 except Exception:
-    ck = torch.load(ckpt_path, map_location='cpu', weights_only=False)
-    print('Loaded full checkpoint')
-    state_dict = ck.get('model_state_dict', ck.get('state_dict', None))
+    RLAgent = None
 
-if state_dict is None:
-    raise SystemExit('Could not find model_state_dict in checkpoint')
+model = None
+if RLAgent is not None:
+    try:
+        agent = RLAgent.from_checkpoint(ckpt_path, player_id='inference-test', starting_money=1000, device='cpu')
+        model = agent.model
+        model.eval()
+        print('Loaded model via RLAgent.from_checkpoint')
+    except Exception:
+        model = None
 
-# Build model and load state
-model = PokerPPOModel()
-try:
-    model.load_state_dict(state_dict)
-    print('Loaded model state_dict into PokerPPOModel')
-except Exception as e:
-    # If state_dict contains nested keys like 'module.' prefixes, try to adapt
-    new_state = {}
-    for k,v in state_dict.items():
-        new_k = k.replace('module.', '')
-        new_state[new_k] = v
-    model.load_state_dict(new_state)
-    print('Loaded model state_dict after stripping module. prefixes')
+if model is None:
+    from training.ppo_model import PokerPPOModel
+    # try weights-only load for checkpoint
+    try:
+        ck = torch.load(ckpt_path, map_location='cpu', weights_only=True)
+        print('Loaded checkpoint weights_only')
+        state_dict = ck
+    except Exception:
+        ck = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+        print('Loaded full checkpoint')
+        state_dict = ck.get('model_state_dict', ck.get('state_dict', None))
 
-model.eval()
+    if state_dict is None:
+        raise SystemExit('Could not find model_state_dict in checkpoint')
+
+    model = PokerPPOModel()
+    try:
+        model.load_state_dict(state_dict)
+        print('Loaded model state_dict into PokerPPOModel')
+    except Exception as e:
+        # If state_dict contains nested keys like 'module.' prefixes, try to adapt
+        new_state = {k.replace('module.', ''): v for k, v in state_dict.items()}
+        model.load_state_dict(new_state)
+        print('Loaded model state_dict after stripping module. prefixes')
+
+    model.eval()
 with torch.no_grad():
     sample_tensor = torch.as_tensor(sample).unsqueeze(0).float()
     action, logp, entropy, value = model.get_action_and_value(sample_tensor, deterministic=True)

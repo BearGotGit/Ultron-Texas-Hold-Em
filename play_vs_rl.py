@@ -16,17 +16,35 @@ from utils.device import DEVICE
 
 def load_rl_model(checkpoint_path, device):
     """Load trained RL model from checkpoint."""
-    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    
-    model = PokerPPOModel(
-        card_embed_dim=64,
-        hidden_dim=256,
-        num_shared_layers=2,
-    ).to(device)
-    model.load_state_dict(checkpoint["model_state_dict"])
-    model.eval()
-    
-    return model, checkpoint['global_step']
+    # Prefer using the canonical loader in agents.rl_agent
+    # Return the RLAgent instance and a best-effort step count (if available)
+    # Ensure a placeholder PPOConfig is present in __main__ for safe unpickling
+    try:
+        import __main__ as _m
+        if not hasattr(_m, 'PPOConfig'):
+            class PPOConfig:
+                pass
+            setattr(_m, 'PPOConfig', PPOConfig)
+    except Exception:
+        pass
+
+    agent_or_model = RLAgent.from_checkpoint(checkpoint_path, player_id="RL-Agent", starting_money=1000, device=device)
+
+    # `from_checkpoint` historically returned an RLAgent instance; newer
+    # loaders may return the raw PyTorch model. Normalize to return
+    # (model, step) where `model` is the PyTorch module used for inference.
+    if isinstance(agent_or_model, RLAgent):
+        model = agent_or_model.model
+    else:
+        model = agent_or_model
+
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        step = checkpoint.get('global_step', None)
+    except Exception:
+        step = None
+
+    return model, step
 
 
 def play_vs_rl(

@@ -34,20 +34,43 @@ except Exception:
 if not os.path.exists(args.checkpoint):
     raise SystemExit('Checkpoint not found: ' + args.checkpoint)
 
-ck = torch.load(args.checkpoint, map_location=args.device, weights_only=False)
-state = ck.get('model_state_dict', ck.get('state_dict', None))
-if state is None:
-    raise SystemExit('No model_state_dict in checkpoint')
+# Prefer canonical RLAgent loader when available, otherwise fall back
+try:
+    from agents.rl_agent import RLAgent
+except Exception:
+    RLAgent = None
 
-from training.ppo_model import PokerPPOModel
-model = PokerPPOModel()
-model.load_state_dict(state)
-model.to(args.device)
-model.eval()
+model = None
+if RLAgent is not None:
+    try:
+        agent = RLAgent.from_checkpoint(args.checkpoint, player_id='script-rl', starting_money=1000, device=args.device)
+        model = agent.model
+        model.to(args.device)
+        model.eval()
+        print('Loaded model via RLAgent.from_checkpoint')
+    except Exception:
+        model = None
+
+if model is None:
+    ck = torch.load(args.checkpoint, map_location=args.device, weights_only=False)
+    state = ck.get('model_state_dict', ck.get('state_dict', None))
+    if state is None:
+        raise SystemExit('No model_state_dict in checkpoint')
+    from training.ppo_model import PokerPPOModel
+    model = PokerPPOModel()
+    model.load_state_dict(state)
+    model.to(args.device)
+    model.eval()
 
 start_stack = 1000
 
 print(f"Playing {args.episodes} hands: RL (hero) vs MonteCarloAgent")
+
+# Aggregate stats
+wins = 0
+total_profit = 0
+total_final_chips = 0
+
 for ep in range(args.episodes):
     # Create players placeholders: hero (RandomAgent used as state holder), opponent MonteCarloAgent
     hero = RandomAgent('HERO', starting_money=start_stack)
@@ -95,4 +118,21 @@ for ep in range(args.episodes):
     profit = final_chips - start_stack
     print(f"Episode {ep+1} finished: hero chips={final_chips}, profit={profit}\n")
 
+    # Update aggregates
+    total_final_chips += final_chips
+    total_profit += profit
+    if profit > 0:
+        wins += 1
+
+# Print summary
+episodes_ran = args.episodes if args.episodes > 0 else 1
+win_rate = wins / episodes_ran
+avg_profit = total_profit / episodes_ran
+avg_final_chips = total_final_chips / episodes_ran
+
+print('--- Summary ---')
+print(f'Episodes: {episodes_ran}')
+print(f'Win rate: {win_rate:.2%} ({wins}/{episodes_ran})')
+print(f'Avg profit (chips): {avg_profit:.2f}')
+print(f'Avg final chips: {avg_final_chips:.2f}')
 print('Done')
