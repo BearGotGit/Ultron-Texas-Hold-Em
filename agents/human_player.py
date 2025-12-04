@@ -184,8 +184,8 @@ class HumanPlayer(PokerPlayer):
                             if raise_amount > max_raise:
                                 print(f"You only have ${max_raise} after calling")
                                 continue
-                            total = to_call + raise_amount
-                            return PokerAction.raise_to(total)
+                            # Return just the raise amount (the call is implicit)
+                            return PokerAction.raise_to(raise_amount)
                         except ValueError:
                             print("Please enter a valid number")
                 else:
@@ -340,8 +340,8 @@ class HumanPlayer(PokerPlayer):
             return ('call', current_bet_to_call)
         elif poker_action.action_type == ActionType.RAISE:
             # For PokerAgent interface, raise amount is the amount ON TOP of call
-            raise_amount = poker_action.amount - current_bet_to_call
-            return ('raise', max(raise_amount, 0))
+            # The poker_action.amount already represents this
+            return ('raise', poker_action.amount)
         else:
             return ('check', 0)
     
