@@ -178,42 +178,6 @@ class RolloutBuffer:
             )
 
 
-class RLPokerAgent(PokerPlayer):
-    """
-    PokerPlayer wrapper for the PPO model.
-    Used during environment interaction.
-    """
-    
-    def __init__(
-        self,
-        player_id: str,
-        model: PokerPPOModel,
-        env: PokerEnv,
-        device: torch.device,
-        starting_money: int = 1000,
-    ):
-        super().__init__(player_id, starting_money)
-        self.model = model
-        self.env = env
-        self.device = device
-    
-    def get_action(
-        self,
-        hole_cards,
-        board,
-        pot,
-        current_bet,
-        min_raise,
-        players,
-        my_idx,
-    ):
-        """Get action from the model (not used directly - env handles this)."""
-        # This is called for opponents, not the hero
-        # The hero's actions come from the training loop
-        from agents.poker_player import PokerAction
-        return PokerAction.check()
-
-
 class PPOTrainer:
     """PPO Trainer for poker agents."""
     
