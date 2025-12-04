@@ -12,7 +12,8 @@ from typing import Optional, Tuple, Any, Dict
 
 from bots.dina_base_bot import BaseBot
 
-from bots.simple import DinaBotWrapper, Simple
+from bots.variants.monte_carlo import MonteCarloBot
+from bots.variants.simple import DinaBotWrapper, Simple
 
 load_dotenv()
 BASEURL = os.getenv("BASEURL")
@@ -104,8 +105,8 @@ class PlayerClient:
             print(f"[{self.player_id}] msg:", data)
             return
         
-        print("Data:\n")
-        pprint(data)
+        # print("Data:\n")
+        # pprint(data)
 
         state = data["state"]
         table = state["table"]
@@ -304,6 +305,8 @@ def build_bot_from_args(args: list[str]) -> Optional[BaseBot]:
         return RandomBot()
     elif bot_name == "simple":
         return DinaBotWrapper(Simple())
+    elif bot_name == "mc":
+        return DinaBotWrapper(MonteCarloBot())
      
     # Extend here: elif bot_name == "mybot": return MyBot(...)
     print(f"[main] Unknown bot '{bot_name}', running in human mode.")

@@ -21,13 +21,13 @@ class DinaBotWrapper(BaseBot):
 
     def decide_action(self, game_view) -> Tuple[ActType, int]:
 
-        print("Game view:")
-        pprint(game_view)
+        # print("Game view:")
+        # pprint(game_view)
 
         obs = format_from_dina(game_view, self.bot)
 
-        print("Obs:\n")
-        pprint(obs.to_dict())
+        # print("Obs:\n")
+        # pprint(obs.to_dict())
 
         act = self.bot(obs)
         return act

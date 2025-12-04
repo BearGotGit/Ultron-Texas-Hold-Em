@@ -1,5 +1,7 @@
 from typing import Any, Dict, Tuple
 
+from bots.interact import ActType
+
 
 class BaseBot:
     """
@@ -15,5 +17,5 @@ class BaseBot:
         - "my_seat": int
     """
 
-    def decide_action(self, game_view: Dict[str, Any]) -> Tuple[str, int]:
+    def decide_action(self, game_view: Dict[str, Any]) -> Tuple[ActType, int]:
         raise NotImplementedError
