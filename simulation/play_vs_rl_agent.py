@@ -13,8 +13,8 @@ from pathlib import Path
 from treys import Card
 from simulation.poker_env import PokerEnv, PokerEnvConfig
 from training.ppo_model import PokerPPOModel
-from training.train_rl_model import PPOConfig
 from agents.poker_player import PokerPlayer, PokerAction, ActionType
+from agents.rl_agent import RLAgent
 from utils.device import DEVICE
 
 
@@ -148,67 +148,6 @@ class HumanPlayer(PokerPlayer):
                 else:
                     print("Invalid choice.")
 
-
-class RLAgentPlayer(PokerPlayer):
-    """Wrapper for trained RL model."""
-    
-    def __init__(
-        self,
-        player_id: str,
-        starting_money: int,
-        model: PokerPPOModel,
-        env: PokerEnv,
-        device: torch.device,
-    ):
-        super().__init__(player_id, starting_money)
-        self.model = model
-        self.env = env
-        self.device = device
-    
-    def get_action(
-        self,
-        hole_cards,
-        board,
-        pot,
-        current_bet,
-        min_raise,
-        players,
-        my_idx,
-    ) -> PokerAction:
-        """Get action from trained RL model."""
-        # Get observation from environment
-        obs = self.env._get_observation()
-        
-        # Convert to tensor
-        obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
-        
-        # Get deterministic action from model
-        with torch.no_grad():
-            action, _, _, _ = self.model.get_action_and_value(obs_t, deterministic=True)
-        
-        action_np = action.squeeze(0).cpu().numpy()
-        
-        # Interpret action using environment's interpreter
-        from simulation.poker_env import interpret_action
-        poker_action = interpret_action(
-            p_fold=float(action_np[0]),
-            bet_scalar=float(action_np[1]),
-            current_bet=current_bet,
-            my_bet=self.bet,
-            min_raise=min_raise,
-            my_money=self.money,
-        )
-        
-        # Print what RL agent is doing
-        print(f"\n🤖 {self.id} action: {poker_action.action_type.value.upper()}", end="")
-        if poker_action.amount > 0:
-            print(f" ${poker_action.amount}")
-        else:
-            print()
-        
-        return poker_action
-
-
 def play_game(
     model_path: str,
     num_hands: int = 10,
@@ -268,8 +207,14 @@ def play_game(
         hero_idx=1,  # RL agent is hero
     )
     
-    # Create actual RL agent wrapper
-    rl_agent = RLAgentPlayer("RL-Agent", starting_stack, model, env, device)
+    # Create actual RL agent using canonical RLAgent class
+    rl_agent = RLAgent(
+        player_id="RL-Agent",
+        starting_money=starting_stack,
+        model=model,
+        device=device,
+        env=env,  # Pass environment for direct observation access
+    )
     
     # Replace placeholders
     env.players[0] = human
