@@ -68,6 +68,18 @@ class PokerEnvConfig:
     # Reward penalty = all_in_penalty_alpha * max_raise_fraction
     # Set to 0.0 to disable. Small positive values (e.g., 0.05) discourage reckless all-ins.
     all_in_penalty_alpha: float = 0.05
+    # Optional potential-based shaping using equity estimates.
+    # Set `use_equity_shaping=True` to enable. `equity_mc_samples` controls
+    # how many Monte-Carlo samples to estimate hand equity (performance cost).
+    # `equity_shaping_coef` scales the shaping reward added per step.
+    use_equity_shaping: bool = False
+    equity_mc_samples: int = 50
+    equity_shaping_coef: float = 1.0
+    # Discount used inside potential-based shaping (should match trainer gamma if possible)
+    equity_shaping_gamma: float = 1.0
+    # Simple per-step chip-delta shaping (very low-cost). If True, each step
+    # returns normalized chip delta in addition to terminal reward (can be noisy).
+    use_step_chip_delta: bool = False
 
 
 # ============================================================
@@ -457,6 +469,18 @@ class PokerEnv(gym.Env):
         # Track the maximum raise fraction applied by the hero during the hand
         # (raise amount divided by starting stack). Used for reward shaping.
         self.current_hand_max_raise_fraction = 0.0
+
+        # Track per-step hero money for optional per-step shaping
+        self._last_hero_money = self.players[self.hero_idx].money
+
+        # Compute initial potential (equity) if shaping enabled
+        if getattr(self.config, 'use_equity_shaping', False):
+            try:
+                self._last_potential = self._estimate_equity(mc_samples=self.config.equity_mc_samples)
+            except Exception:
+                self._last_potential = 0.0
+        else:
+            self._last_potential = 0.0
         
         # Set starting player (left of big blind for pre-flop)
         self.active_player_idx = (self.dealer_position + 3) % self.num_players
@@ -493,6 +517,14 @@ class PokerEnv(gym.Env):
             # Shouldn't happen if advance logic is correct
             return self._get_observation(), 0.0, False, True, self._get_info()
         
+        # Optional: compute potential (equity) before action for shaping
+        phi_before = 0.0
+        if getattr(self.config, 'use_equity_shaping', False):
+            try:
+                phi_before = self._estimate_equity(mc_samples=self.config.equity_mc_samples)
+            except Exception:
+                phi_before = 0.0
+
         # Interpret action
         p_fold = float(action[0])
         bet_scalar = float(action[1])
@@ -512,8 +544,27 @@ class PokerEnv(gym.Env):
         # Advance game state
         self._advance_to_hero_or_end()
         
-        # Calculate reward
+        # Calculate reward (terminal component)
         reward = self._calculate_reward()
+
+        # Per-step chip delta shaping
+        if getattr(self.config, 'use_step_chip_delta', False):
+            hero_money = self.players[self.hero_idx].money
+            chip_delta = (hero_money - getattr(self, '_last_hero_money', hero_money)) / max(1.0, float(self.config.starting_stack))
+            reward += float(chip_delta)
+            self._last_hero_money = hero_money
+
+        # Equity-based potential shaping: add gamma * Phi(s') - Phi(s)
+        if getattr(self.config, 'use_equity_shaping', False):
+            try:
+                phi_after = self._estimate_equity(mc_samples=self.config.equity_mc_samples)
+            except Exception:
+                phi_after = 0.0
+
+            shaping = (self.config.equity_shaping_gamma * float(phi_after) - float(phi_before))
+            reward += float(self.config.equity_shaping_coef) * shaping
+            # update last potential
+            self._last_potential = phi_after
         
         # Check termination
         terminated = self.game_over or self.hand_complete
@@ -766,6 +817,98 @@ class PokerEnv(gym.Env):
             reward = reward - penalty
 
         return reward
+
+
+    def _estimate_equity(self, mc_samples: int = 50) -> float:
+        """
+        Estimate hero's win equity (probability of winning at showdown)
+        against the current active opponents by Monte-Carlo sampling.
+
+        Returns a float in [0, 1]. Ties count as fractional wins.
+        """
+        # If hero has no hole cards or board is invalid, return 0.5 fallback
+        hero = self.players[self.hero_idx]
+        hero_hole = hero.get_hole_cards()
+        if not hero_hole or len(hero_hole) < 2:
+            return 0.5
+
+        # Opponent count: active opponents (not folded) excluding hero
+        opponents = [p for i, p in enumerate(self.players) if i != self.hero_idx and not p.folded]
+        num_opponents = max(0, len(opponents))
+
+        # If no opponents (already won), equity is 1.0
+        if num_opponents == 0:
+            return 1.0
+
+        # Known cards: hero hole + current board
+        known = set()
+        for c in hero_hole:
+            known.add(c)
+        for c in self.board:
+            known.add(c)
+
+        # Build pool of remaining cards
+        full_deck = Deck().cards.copy()
+        remaining = [c for c in full_deck if c not in known]
+        if len(remaining) < 2:
+            return 0.5
+
+        wins = 0.0
+        ties = 0.0
+        samples = max(1, int(mc_samples))
+
+        for _ in range(samples):
+            # sample without replacement enough cards for rest of board + opponents
+            needed_board = max(0, 5 - len(self.board))
+            need = needed_board + 2 * num_opponents
+            if need > len(remaining):
+                # not enough cards to simulate; fallback
+                break
+            draw = random.sample(remaining, need)
+            idx = 0
+
+            # construct full board
+            sim_board = list(self.board)
+            if needed_board > 0:
+                sim_board.extend(draw[idx: idx + needed_board])
+                idx += needed_board
+
+            # opponent hands
+            opp_hands = []
+            for _ in range(num_opponents):
+                opp_hands.append([draw[idx], draw[idx + 1]])
+                idx += 2
+
+            # Evaluate hero vs opponents
+            try:
+                hero_score = self.evaluator.evaluate(sim_board, hero_hole)
+            except Exception:
+                hero_score = float('inf')
+
+            opp_scores = []
+            for h in opp_hands:
+                try:
+                    s = self.evaluator.evaluate(sim_board, h)
+                except Exception:
+                    s = float('inf')
+                opp_scores.append(s)
+
+            best_opp = min(opp_scores) if opp_scores else float('inf')
+            if hero_score < best_opp:
+                wins += 1.0
+            elif hero_score == best_opp:
+                # tie: fraction = 1 / (num winners)
+                # count ties as fractional win among tied parties
+                winners = 1 + sum(1 for s in opp_scores if s == hero_score)
+                ties += 1.0 / float(winners)
+            # else loss
+
+        total = float(samples)
+        if total <= 0:
+            return 0.5
+
+        equity = (wins + ties) / total
+        return float(equity)
     
     def _get_observation(self) -> np.ndarray:
         """Build the observation tensor."""
