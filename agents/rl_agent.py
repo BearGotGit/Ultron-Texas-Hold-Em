@@ -11,6 +11,7 @@ import torch
 from agents.agent import PokerAgent
 from simulation.poker_env import PokerEnv, PokerEnvConfig, interpret_action
 from agents.monte_carlo_agent import RandomAgent
+from connect.adapters import to_treys_card
 
 
 # ============================================
@@ -110,7 +111,7 @@ class RLAgent(PokerAgent):
 
     def _sync_env(self, board, pot, current_bet, my_bet, min_raise):
         env = self.temp_env
-        env.board = list(board)          # ideally convert to Treys ints
+        env.board = [to_treys_card(c) for c in board]        # ideally convert to Treys ints
         env.pot.money = pot
         env.current_bet = current_bet
         env.min_raise = min_raise
@@ -127,7 +128,7 @@ class RLAgent(PokerAgent):
         except Exception:
             hero._private_cards = list(getattr(self, 'hole_cards', []))
         hero.money = self.chips
-        hero.bet = my_bet
+        hero.bet = my_bet 
         hero.folded = self.is_folded
         hero.all_in = self.is_all_in
 
@@ -170,38 +171,70 @@ def load_model(path):
 # ============================================
 
 class RLBot:
+    """
+    Wrapper that connects the server's raw game state
+    to the RLAgent that was trained in PokerEnv.
+    """
+
     def __init__(self, model, device, starting_chips=1000, name="rl-bot"):
         self.agent = RLAgent(name, starting_chips, model, device)
 
     def decide_action(self, game_view):
+        """
+        Convert server game state → RLAgent inputs → return (action, amount)
+        """
+
         state = game_view["state"]
         table = game_view["table"]
         me = game_view["self_player"]
 
-        board = state.get("board", [])
+        if me is None:
+            print("[DEBUG] No self_player in game_view, defaulting to check.")
+            return ("check", 0)
+
+        # ------------------------------
+        # Convert board to Treys format
+        # ------------------------------
+        raw_board = state.get("board", [])
+        board = [to_treys_card(c) for c in raw_board]
+
+        # Pot
         pot = state.get("pot", 0)
 
+        # ------------------------------
+        # Compute current bet and call amount
+        # ------------------------------
         players = table.get("players") or []
         bets = [p.get("bet", 0) for p in players if p]
         current_bet = max(bets) if bets else 0
+
         my_bet = me.get("bet", 0) or 0
         to_call = max(0, current_bet - my_bet)
 
-        # Proper min_raise handling
-        min_raise = None
-        for key in ("minRaise", "min_raise"):
-            if key in state and state[key] is not None:
-                min_raise = state[key]
-                break
-        if min_raise is None and "minRaise" in table:
-            min_raise = table["minRaise"]
+        # ------------------------------
+        # Proper min-raise handling
+        # ------------------------------
+        min_raise = state.get("minRaise")
         if min_raise is None:
-            min_raise = 10  # big blind fallback
+            min_raise = state.get("min_raise")
+        if min_raise is None:
+            min_raise = table.get("minRaise")
+        if min_raise is None:
+            min_raise = 10   # Fallback big blind
 
-        # Update agent's view of hole cards + chips
-        self.agent.hole_cards = list(me.get("cards", []))
+        # ------------------------------
+        # Convert hole cards to Treys ints
+        # ------------------------------
+        raw_hole = me.get("cards", [])
+        hole_cards = [to_treys_card(c) for c in raw_hole]
+        self.agent.hole_cards = hole_cards
+
+        # Update chips
         self.agent.chips = int(me.get("chips", self.agent.chips))
 
+        # ------------------------------
+        # Ask RLAgent for the decision
+        # ------------------------------
         try:
             action, amount = self.agent.make_decision(
                 board=board,
@@ -210,9 +243,15 @@ class RLBot:
                 my_bet=my_bet,
                 min_raise=min_raise,
             )
+            print(f"[DEBUG] RLAgent returns: {action}, {amount}")
         except Exception as e:
-            # Stable fallback
+            print(f"[DEBUG] RLAgent error: {e}")
+            # Safe fallback like evaluation script
             return ("call", to_call) if to_call > 0 else ("check", 0)
 
-        return action, amount
+        # Ensure valid output
+        if not action:
+            print("[DEBUG] Empty action from RLAgent, defaulting to check.")
+            return ("check", 0)
 
+        return action, int(amount)

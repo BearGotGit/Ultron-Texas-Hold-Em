@@ -192,12 +192,15 @@ class PlayerClient:
     
     def run_bot(self, raw_msg):
         game_view = game_view_from_server(raw_msg, self.player_id)
+        print("\n[DEBUG] RL BOT TURN — calling decide_action()")
 
         try:
             action, amount = self.bot.decide_action(game_view)
         except Exception as e:
+            # Log bot errors but avoid sending a hard-coded action (e.g. "CALL", 0)
+            # The bot wrapper (e.g. `RLBot`) should provide its own stable fallback.
             print(f"[{self.player_id}] bot error:", e)
-            action, amount = "CALL", 0
+            return
 
         action = (action or "").strip().upper()
         if action == "CHECK":
