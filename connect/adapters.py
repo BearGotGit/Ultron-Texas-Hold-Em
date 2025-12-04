@@ -50,23 +50,6 @@ def to_treys_card(c: Any) -> int:
     return 0
 
 
-def normalize_action(action: str) -> str:
-    """Normalize outgoing action string to the server-expected token.
-
-    The server protocol typically expects lower-case tokens: 'call', 'fold', 'raise'.
-    This function maps common variants (upper-case, synonyms) to the canonical form.
-    """
-    if not action:
-        return "call"
-    a = action.strip().lower()
-    if a in ("check", "call"):
-        return "call"
-    if a in ("fold",):
-        return "fold"
-    if a in ("raise", "bet"):
-        return "raise"
-    return "call"
-
 
 def game_view_from_server(msg: Dict[str, Any], player_id: str) -> Dict[str, Any]:
     """Convert a raw server state message to the `game_view` dict used by bots.

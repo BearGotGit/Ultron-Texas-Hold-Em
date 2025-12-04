@@ -6,10 +6,10 @@ if str(repo_root) not in sys.path:
 
 import torch
 import numpy as np
-from simulation.poker_env import PokerEnv, PokerEnvConfig
+from simulation.poker_env import PokerEnv, PokerEnvConfig, interpret_action
 from agents.monte_carlo_agent import MonteCarloAgent
 from agents.monte_carlo_agent import RandomAgent
-from agents.poker_player import PokerPlayer, PokerPlayerPublic, PokerAction
+from agents.poker_player import PokerPlayer, PokerPlayerPublic, PokerAction, ActionType
 from training.ppo_model import PokerPPOModel
 
 parser = argparse.ArgumentParser()
@@ -88,13 +88,44 @@ for ep in range(episodes):
         with torch.no_grad():
             fold_logit, bet_alpha, bet_beta, _ = model(obs_tensor)
             p_fold = float(torch.sigmoid(fold_logit).squeeze().cpu().numpy())
-            # sample deterministic mean from Beta
+            hero = RandomAgent('HERO', starting_money=start_stack)
             bet_alpha_v = float(bet_alpha.squeeze().cpu().numpy())
             bet_beta_v = float(bet_beta.squeeze().cpu().numpy())
             # Use mean for deterministic evaluation: alpha/(alpha+beta)
             bet_scalar = bet_alpha_v / (bet_alpha_v + bet_beta_v)
-        action_arr = np.array([p_fold, bet_scalar], dtype=np.float32)
-        obs, reward, terminated, truncated, info = env.step(action_arr)
+        hero_player = env.players[env.hero_idx]
+
+        # compute amount to call
+        to_call = max(0, env.current_bet - hero_player.bet)
+
+        # convert RL output to safe PokerAction (identical to RLAgent behavior)
+        poker_action = interpret_action(
+            p_fold=p_fold,
+            bet_scalar=bet_scalar,
+            current_bet=env.current_bet,
+            my_bet=hero_player.bet,
+            min_raise=max(env.min_raise, env.config.big_blind),
+            my_money=hero_player.money,
+        )
+
+        # safety: folding with nothing to call → check
+        if poker_action.action_type == ActionType.FOLD and to_call == 0:
+            poker_action = PokerAction.check()
+
+        # safety: raise smaller than call → convert to call
+        if poker_action.action_type == ActionType.RAISE:
+            if poker_action.amount < to_call:
+                poker_action = PokerAction.call(to_call)
+
+
+        # If a trained model is loaded, the env expects a numeric action array
+        # (`[p_fold, bet_scalar]`) so let the env handle discretization.
+        if model is not None:
+            action_arr = np.array([p_fold, bet_scalar], dtype=float)
+            obs, reward, terminated, truncated, info = env.step(action_arr)
+        else:
+            obs, reward, terminated, truncated, info = env.step(poker_action)
+
         total_reward += reward
         if truncated:
             # treat truncated as end

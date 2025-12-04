@@ -297,36 +297,46 @@ class PokerPPOModel(nn.Module):
             value: (batch, 1) state value
         """
         fold_logit, bet_alpha, bet_beta, value = self.forward(obs)
-        
-        # Fold distribution (Bernoulli)
-        fold_prob = torch.sigmoid(fold_logit)
-        fold_dist = Bernoulli(probs=fold_prob)
-        
-        # Bet distribution (Beta)
-        bet_dist = Beta(bet_alpha, bet_beta)
-        
+
+        # Fold probability (continuous proxy; evaluate_actions expects
+        # a continuous fold component so we keep the same convention)
+        fold_prob = torch.sigmoid(fold_logit)  # (batch, 1)
+
+        # For the fold component we use the probability itself as the
+        # continuous action (deterministic). If you later want a
+        # sampled Bernoulli, change this to sample from Bernoulli(fold_prob).
+        fold_action = fold_prob  # (batch, 1)
+
+        # Bet (bet_scalar) distribution (Beta). Use mean when deterministic,
+        # otherwise sample via reparameterized rsample() so gradients flow.
+        # Beta expects 1-D parameter tensors, so squeeze the last dim.
+        bet_alpha_s = bet_alpha.squeeze(-1)
+        bet_beta_s = bet_beta.squeeze(-1)
+        bet_dist = Beta(bet_alpha_s, bet_beta_s)
+
         if deterministic:
-            # Use mode/mean for deterministic action
-            fold_action = (fold_prob > 0.5).float()
-            bet_action = bet_dist.mean
+            bet_action_s = bet_dist.mean  # (batch,)
         else:
-            # Sample
-            fold_action = fold_dist.sample()
-            bet_action = bet_dist.sample()
-        
-        # Combine into action tensor
+            bet_action_s = bet_dist.rsample()  # (batch,)
+
+        # Restore (batch, 1) shape for consistency
+        bet_action = bet_action_s.unsqueeze(-1)
+
+        # Combine into final action tensor: [p_fold, bet_scalar]
         action = torch.cat([fold_action, bet_action], dim=1)  # (batch, 2)
-        
-        # Log probabilities
-        fold_log_prob = fold_dist.log_prob(fold_action)  # (batch, 1)
-        bet_log_prob = bet_dist.log_prob(bet_action)  # (batch, 1)
-        log_prob = fold_log_prob.squeeze(-1) + bet_log_prob.squeeze(-1)  # (batch,)
-        
-        # Entropy
-        fold_entropy = fold_dist.entropy()  # (batch, 1)
-        bet_entropy = bet_dist.entropy()  # (batch, 1)
-        entropy = fold_entropy.squeeze(-1) + bet_entropy.squeeze(-1)  # (batch,)
-        
+
+        # Compute log probabilities and entropy matching evaluate_actions()
+        # Fold "log-prob" is implemented as a simple squared-error proxy
+        # to avoid discontinuous Bernoulli log-prob terms in the continuous action space.
+        fold_log_prob = -((fold_action - fold_prob).pow(2)).squeeze(-1)
+        bet_log_prob = bet_dist.log_prob(bet_action_s).squeeze(-1)
+        log_prob = fold_log_prob + bet_log_prob
+
+        fold_entropy = torch.zeros_like(fold_prob).squeeze(-1)
+        bet_entropy = bet_dist.entropy()
+        entropy = fold_entropy + bet_entropy
+
+
         return action, log_prob, entropy, value
     
     def evaluate_actions(
@@ -334,46 +344,37 @@ class PokerPPOModel(nn.Module):
         obs: torch.Tensor,
         actions: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Evaluate log probabilities and values for given actions.
-        Used during PPO update.
-        
-        Args:
-            obs: (batch, obs_dim) observations
-            actions: (batch, 2) [p_fold, bet_scalar] actions
-            
-        Returns:
-            log_prob: (batch,) log probability of actions
-            entropy: (batch,) action entropy
-            value: (batch, 1) state values
-        """
+
         fold_logit, bet_alpha, bet_beta, value = self.forward(obs)
-        
-        # Extract action components
-        fold_action = actions[:, 0:1]  # (batch, 1)
-        bet_action = actions[:, 1:2]  # (batch, 1)
-        
-        # Clamp bet_action to valid range for Beta distribution
+
+        # Extract components
+        fold_action = actions[:, 0:1]       # (batch, 1)
+        bet_action = actions[:, 1:2]        # (batch, 1)
         bet_action = torch.clamp(bet_action, 1e-6, 1.0 - 1e-6)
-        
+
         # Fold distribution
-        fold_prob = torch.sigmoid(fold_logit)
-        fold_dist = Bernoulli(probs=fold_prob)
-        
-        # Bet distribution
-        bet_dist = Beta(bet_alpha, bet_beta)
-        
+        fold_prob = torch.sigmoid(fold_logit)   # (batch, 1)
+
+        # Beta distribution (batch,)
+        bet_alpha_s = bet_alpha.squeeze(-1)
+        bet_beta_s = bet_beta.squeeze(-1)
+        bet_dist = Beta(bet_alpha_s, bet_beta_s)
+
         # Log probabilities
-        fold_log_prob = fold_dist.log_prob(fold_action)  # (batch, 1)
-        bet_log_prob = bet_dist.log_prob(bet_action)  # (batch, 1)
-        log_prob = fold_log_prob.squeeze(-1) + bet_log_prob.squeeze(-1)  # (batch,)
-        
+        fold_log_prob = -((fold_action - fold_prob).pow(2)).squeeze(-1)  # (batch,)
+
+        bet_action_s = bet_action.squeeze(-1)  # (batch,)
+        bet_log_prob = bet_dist.log_prob(bet_action_s)  # (batch,)
+
+        log_prob = fold_log_prob + bet_log_prob  # (batch,)
+
         # Entropy
-        fold_entropy = fold_dist.entropy()  # (batch, 1)
-        bet_entropy = bet_dist.entropy()  # (batch, 1)
-        entropy = fold_entropy.squeeze(-1) + bet_entropy.squeeze(-1)  # (batch,)
-        
+        fold_entropy = torch.zeros_like(fold_prob).squeeze(-1)  # (batch,)
+        bet_entropy = bet_dist.entropy()                        # (batch,)
+        entropy = fold_entropy + bet_entropy
+
         return log_prob, entropy, value
+
     
     def get_value(self, obs: torch.Tensor) -> torch.Tensor:
         """

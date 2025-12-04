@@ -66,9 +66,8 @@ class PokerEnvConfig:
     max_players: int = MAX_PLAYERS
     # Penalty coefficient applied to normalized max raise fraction per hand.
     # Reward penalty = all_in_penalty_alpha * max_raise_fraction
-    # Set to 0.0 to disable. Small positive values discourage reckless all-ins.
-    # Default to 0.0 in tests to avoid unexpected reward adjustments.
-    all_in_penalty_alpha: float = 0.0
+    # Set to 0.0 to disable. Small positive values (e.g., 0.05) discourage reckless all-ins.
+    all_in_penalty_alpha: float = 0.05
 
 
 # ============================================================
@@ -174,8 +173,31 @@ def encode_round_stage(round_stage: RoundStage) -> float:
 # Action Interpretation
 # ============================================================
 
-# Epsilon thresholds for action interpretation
-ACTION_EPSILON = 0.1
+import random
+
+# Tunable thresholds for action interpretation.
+#
+# The goal is to get a *reasonable* baseline mix when the network
+# outputs are roughly uniform:
+#   - FOLD: 15–30%
+#   - CHECK: 25–40%
+#   - CALL: 20–35%
+#   - RAISE: 10–25%
+#
+# You can tweak these four knobs to shift the mix:
+#
+#  - FOLD_THRESHOLD: how big p_fold must be to actually fold (when facing a bet)
+#  - CHECK_THRESHOLD: when there is *no* bet to call, how often we check vs raise
+#  - RAISE_THRESHOLD: when facing a bet, how large bet_scalar must be to raise
+#  - POT_FRACTION: how big raises are relative to remaining chips
+#
+# Start here; if you log action counts and see too many folds/raises,
+# adjust thresholds slightly.
+
+FOLD_THRESHOLD = 0.75     #↑ require higher fold-prob to fold (reduce illegal fold->check conversions)
+CHECK_THRESHOLD = 0.65    # ↓ more raises when checked to (25–35% raises)
+RAISE_THRESHOLD = 0.60    # ↓ more raises when facing a bet (15–25%)
+POT_FRACTION = 0.15       # small raises (non-all-in) so model can learn
 
 
 def interpret_action(
@@ -188,52 +210,111 @@ def interpret_action(
 ) -> PokerAction:
     """
     Interpret model outputs into a PokerAction.
-    
+
     Args:
-        p_fold: Probability of folding (0-1)
-        bet_scalar: Betting scalar (0-1)
-        current_bet: Current bet to match
-        my_bet: My current bet this round
-        min_raise: Minimum raise amount
-        my_money: My remaining chips
-        
+        p_fold:     model output in [0, 1] (we treat it as a generic scalar)
+        bet_scalar: model output in [0, 1] used for sizing / aggressiveness
+        current_bet: current bet everyone must match
+        my_bet:     my current bet in this round
+        min_raise:  minimum legal raise amount
+        my_money:   my remaining chips
+
     Returns:
-        PokerAction
+        PokerAction (fold / check / call / raise_to)
     """
-    # Calculate amount to call first - needed for fold legality check
-    to_call = current_bet - my_bet
-    
-    # Fold decision (Bernoulli)
-    # NOTE: Folding is only legal when there's a bet to call (to_call > 0)
-    # If there's nothing to call, treat a fold request as a CHECK
-    if p_fold > 0.5:
-        if to_call > 0:
-            return PokerAction.fold()
-        else:
-            # Can't fold when there's nothing to call - CHECK instead
+    # Amount to call
+    to_call = max(0, current_bet - my_bet)
+
+    # ----------------------------------------------------------------
+    # CASE 1: Nothing to call (checked to us / we are BB facing no raise)
+    # ----------------------------------------------------------------
+    if to_call <= 0:
+        # Folding is never correct here; map folds to check.
+        # We use CHECK_THRESHOLD to bias toward check vs raise.
+        if bet_scalar < CHECK_THRESHOLD:
+            # CHECK about CHECK_THRESHOLD of the time
             return PokerAction.check()
-    
-    # Interpret bet_scalar
-    if bet_scalar < ACTION_EPSILON:
-        # Check or call
-        if to_call <= 0:
+
+        # Remaining ~ (1 - CHECK_THRESHOLD) of the time we RAISE
+        # Compute a sensible raise size:
+        #   - base on a fraction of our stack
+        #   - at least min_raise
+        #   - never more than our stack (all-in cap)
+        max_additional = max(0, my_money)
+        if max_additional <= 0:
             return PokerAction.check()
-        else:
-            call_amount = min(to_call, my_money)
-            return PokerAction.call(call_amount)
-    
-    elif bet_scalar > 1.0 - ACTION_EPSILON:
-        # All-in
-        return PokerAction.raise_to(my_money)
-    
-    else:
-        # Scaled raise
-        # Map bet_scalar from (ε, 1-ε) to (min_raise, my_money)
-        normalized = (bet_scalar - ACTION_EPSILON) / (1.0 - 2 * ACTION_EPSILON)
-        max_raise = my_money
-        raise_amount = int(min_raise + normalized * (max_raise - min_raise))
-        raise_amount = max(min_raise, min(raise_amount, my_money))
+
+        # bet_scalar ∈ [CHECK_THRESHOLD, 1]; normalize to [0, 1]
+        norm = (bet_scalar - CHECK_THRESHOLD) / max(1e-6, (1.0 - CHECK_THRESHOLD))
+        target_additional = int(norm * (POT_FRACTION * max_additional))
+        raise_amount = max(min_raise, min(max_additional, target_additional))
+
+        if raise_amount <= 0:
+            return PokerAction.check()
+
         return PokerAction.raise_to(raise_amount)
+
+    # ----------------------------------------------------------------
+    # CASE 2: There is a bet to call (to_call > 0)
+    # ----------------------------------------------------------------
+
+    # Use p_fold to handle fold vs “continue”.
+    # If the model is confident on folding and there *is* something to call,
+    # allow fold. FOLD_THRESHOLD ~ 0.6–0.7 tends to give 15–30% folds.
+    if p_fold > FOLD_THRESHOLD:
+        return PokerAction.fold()
+
+    # We’re not folding. Decide between CALL and RAISE using bet_scalar.
+    #
+    #   bet_scalar < RAISE_THRESHOLD  -> CALL
+    #   bet_scalar >= RAISE_THRESHOLD -> RAISE
+    #
+    # With uniform bet_scalar, that gives:
+    #   P(call | not fold) ≈ RAISE_THRESHOLD
+    #   P(raise | not fold) ≈ 1 - RAISE_THRESHOLD
+    #
+    # Example: FOLD_THRESHOLD=0.65, RAISE_THRESHOLD=0.70
+    #   P(fold)  ≈ 0.35
+    #   P(call)  ≈ 0.65 * 0.70 ≈ 0.455
+    #   P(raise) ≈ 0.65 * 0.30 ≈ 0.195
+    #
+    # After training, the network will skew these, but this gives a
+    # *healthy* starting prior rather than “raise 95%”.
+
+    if bet_scalar < RAISE_THRESHOLD:
+        # CALL
+        call_amount = min(to_call, my_money)
+        if call_amount <= 0:
+            # If somehow busted / no chips, just check (env will handle).
+            return PokerAction.check()
+        return PokerAction.call(call_amount)
+
+    # RAISE path
+    max_additional = max(0, my_money - to_call)
+    if max_additional <= 0:
+        # Can't really raise; fall back to call
+        call_amount = min(to_call, my_money)
+        if call_amount <= 0:
+            return PokerAction.check()
+        return PokerAction.call(call_amount)
+
+    # Normalize bet_scalar within [RAISE_THRESHOLD, 1] to [0, 1]
+    norm = (bet_scalar - RAISE_THRESHOLD) / max(1e-6, (1.0 - RAISE_THRESHOLD))
+
+    # Target additional amount scales with remaining stack and POT_FRACTION
+    target_additional = int(norm * (POT_FRACTION * max_additional))
+
+    raise_amount = max(min_raise, min(max_additional, target_additional))
+
+    # If after clamping the raise is effectively 0, just call.
+    if raise_amount <= 0:
+        call_amount = min(to_call, my_money)
+        if call_amount <= 0:
+            return PokerAction.check()
+        return PokerAction.call(call_amount)
+
+    return PokerAction.raise_to(raise_amount)
+
 
 
 # ============================================================

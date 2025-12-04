@@ -23,7 +23,7 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from simulation.poker_env import PokerEnv, PokerEnvConfig
+from simulation.poker_env import PokerEnv, PokerEnvConfig, interpret_action
 from training.ppo_model import PokerPPOModel
 from agents.poker_player import PokerPlayer
 from agents.monte_carlo_agent import MonteCarloAgent, RandomAgent
@@ -261,12 +261,14 @@ class PPOTrainer:
     def _create_envs(self) -> List[PokerEnv]:
         """Create parallel environments with opponent agents."""
         envs = []
-        
+
         for i in range(self.config.num_envs):
-            # Create opponents (Monte Carlo agents with varying parameters)
+
+            # ----- Create opponents -----
             opponents = []
             for j in range(1, self.config.num_players):
-                # If opponent population dir provided, try to load a random RL checkpoint
+
+                # Optional: load RL opponents from a population directory
                 if self.config.opponent_dir:
                     try:
                         from pathlib import Path
@@ -285,42 +287,56 @@ class PPOTrainer:
                             opponents.append(opponent)
                             continue
                     except Exception:
-                        # fallback to MonteCarloAgent if loading fails
-                        pass
+                        pass  # fallback to MonteCarlo below
 
                 aggression = 0.3 + 0.4 * (j / self.config.num_players)
-                opponent = MonteCarloAgent(
-                    player_id=f"Opponent-{i}-{j}",
-                    starting_money=self.config.starting_stack,
-                    num_simulations=100,
-                    aggression=aggression,
+                opponents.append(
+                    MonteCarloAgent(
+                        player_id=f"Opponent-{i}-{j}",
+                        starting_money=self.config.starting_stack,
+                        num_simulations=100,
+                        aggression=aggression,
+                    )
                 )
-                opponents.append(opponent)
-            
-            # Create a placeholder for hero (will be controlled by training loop)
-            hero = MonteCarloAgent(
+
+            # ----- Placeholder hero (will be replaced immediately) -----
+            placeholder_hero = MonteCarloAgent(
                 player_id=f"Hero-{i}",
                 starting_money=self.config.starting_stack,
                 num_simulations=50,
             )
-            
-            players = [hero] + opponents
-            
+
+            players = [placeholder_hero] + opponents
+
             env_config = PokerEnvConfig(
                 big_blind=self.config.big_blind,
                 small_blind=self.config.small_blind,
                 starting_stack=self.config.starting_stack,
                 max_players=self.config.num_players,
             )
-            
+
             env = PokerEnv(
                 players=players,
                 config=env_config,
                 hero_idx=0,
             )
+
+            # ----- FIX: REPLACE HERO WITH RL-CONTROLLED AGENT -----
+            rl_hero = RLPokerAgent(
+                player_id=f"Hero-{i}",
+                model=self.model,
+                env=env,
+                device=self.device,
+                starting_money=self.config.starting_stack,
+            )
+
+            env.players[0] = rl_hero
+            env.hero_idx = 0
+
             envs.append(env)
-        
+
         return envs
+
 
     def _maybe_snapshot_to_population(self, checkpoint_path: str):
         """Optionally copy saved checkpoints into the opponent population dir."""
@@ -368,8 +384,19 @@ class PPOTrainer:
             dones = []
             
             for i, env in enumerate(self.envs):
-                action = actions[i].cpu().numpy()
-                next_obs, reward, terminated, truncated, info = env.step(action)
+                from simulation.poker_env import interpret_action
+
+                raw = actions[i].cpu().numpy()
+                p_fold = float(raw[0])
+                bet_scalar = float(raw[1])
+
+                hero = env.players[env.hero_idx]
+
+                # convert PPO action → discrete PokerAction the env understands
+                # The env.step expects a numeric action array ([p_fold, bet_scalar]).
+                action_arr = np.array([p_fold, bet_scalar], dtype=np.float32)
+                next_obs, reward, terminated, truncated, info = env.step(action_arr)
+
                 
                 current_rewards[i] += reward
                 current_lengths[i] += 1
@@ -577,47 +604,68 @@ class PPOTrainer:
         print(f"\nTraining complete! Total time: {time.time() - start_time:.1f}s")
     
     def evaluate(self, num_episodes: int) -> Dict[str, float]:
-        """Evaluate the current policy."""
+        """Evaluate the current policy deterministically."""
         self.model.eval()
-        
+
         wins = 0
         total_profit = 0.0
-        
-        # Use first environment for evaluation
         env = self.envs[0]
-        
+
         for _ in range(num_episodes):
             obs, _ = env.reset()
             initial_chips = env.players[env.hero_idx].money
             done = False
-            
+
             while not done:
                 obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
+
+                # ---- FIX 1: deterministic policy output ----
                 with torch.no_grad():
                     action, _, _, _ = self.model.get_action_and_value(obs_t, deterministic=True)
-                action = action.squeeze(0).cpu().numpy()
-                
-                obs, reward, terminated, truncated, info = env.step(action)
+
+                raw = action.squeeze(0).cpu().numpy()
+                p_fold = float(raw[0])
+                bet_scalar = float(raw[1])
+
+                hero = env.players[env.hero_idx]
+
+                # ---- FIX 2: always convert RL → poker action ----
+                # Env.step expects the numeric 2-vector action ([p_fold, bet_scalar]).
+                action_arr = np.array([p_fold, bet_scalar], dtype=np.float32)
+                obs, reward, terminated, truncated, info = env.step(action_arr)
                 done = terminated or truncated
-            
+
             final_chips = env.players[env.hero_idx].money
             profit = final_chips - initial_chips
-            
+
             if profit > 0:
                 wins += 1
             total_profit += profit
-        
+
         return {
             "win_rate": wins / num_episodes,
             "avg_profit": total_profit / num_episodes,
         }
+
     
     def save_checkpoint(self, filename: str):
         """Save model checkpoint."""
-        save_dir = Path(self.config.save_dir)
-        save_dir.mkdir(parents=True, exist_ok=True)
-        
-        path = save_dir / filename
+        # Allow the caller to pass either a bare filename (which will be
+        # placed under the configured save_dir) or a path. Ensure the
+        # target directory exists before saving.
+        from pathlib import Path as _Path
+
+        filename_path = _Path(filename)
+        if filename_path.parent and str(filename_path.parent) != "":
+            path = filename_path
+        else:
+            save_dir = Path(self.config.save_dir)
+            save_dir.mkdir(parents=True, exist_ok=True)
+            path = save_dir / filename_path
+
+        # Ensure parent directory exists
+        path.parent.mkdir(parents=True, exist_ok=True)
+
         torch.save({
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
@@ -775,7 +823,7 @@ class PPOTrainer:
                 # Calculate amount to call for debugging
                 to_call = env.current_bet - hero.bet
                 
-                # Interpret the action
+                # For debugging we still want to know the discrete PokerAction
                 poker_action = interpret_action(
                     p_fold=p_fold,
                     bet_scalar=bet_scalar,
@@ -784,7 +832,7 @@ class PPOTrainer:
                     min_raise=env.min_raise,
                     my_money=hero.money,
                 )
-                
+
                 # Track action type
                 action_type = poker_action.action_type.value
                 action_counts[action_type] += 1
@@ -815,8 +863,9 @@ class PPOTrainer:
                 if p_fold > 0.5 and to_call <= 0:
                     print(f"    ⚠️  NOTE: Model wanted to FOLD but there's nothing to call → converted to CHECK")
                 
-                # Take step
-                next_obs, reward, terminated, truncated, info = env.step(action_np)
+                # Take step using numeric action array (env.step will re-run interpret_action)
+                action_arr = np.array([p_fold, bet_scalar], dtype=np.float32)
+                next_obs, reward, terminated, truncated, info = env.step(action_arr)
                 episode_reward += reward
                 total_rewards += reward
                 
