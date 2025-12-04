@@ -762,3 +762,227 @@ class PokerEnv(gym.Env):
             marker = " *" if i == self.active_player_idx else ""
             lines.append(f"{player.id}: ${player.money}{marker}")
         return "\n".join(lines)
+    
+    # ============================================================
+    # Player-Agnostic Step Methods
+    # ============================================================
+    
+    def step_action(
+        self,
+        action: PokerAction,
+    ) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+        """
+        Step the environment using a PokerAction for the active player.
+        
+        This method is player-agnostic - it applies the action to whoever
+        is currently the active player. The training loop is responsible
+        for tracking rewards for the player(s) being trained.
+        
+        Args:
+            action: PokerAction to apply
+            
+        Returns:
+            observation, reward, terminated, truncated, info
+            
+            Note: reward is always 0.0 since this is a player-agnostic method.
+            Use get_reward_for_player(idx) after hand ends to get per-player rewards.
+        """
+        if self.game_over or self.hand_complete:
+            return self._get_observation(), 0.0, True, False, self._get_info()
+        
+        player_idx = self.active_player_idx
+        player = self.players[player_idx]
+        
+        if player.folded or player.all_in:
+            # Player can't act, advance to next
+            self._advance_game()
+            return self._get_observation(), 0.0, False, True, self._get_info()
+        
+        # Apply action
+        valid = self._apply_action(player_idx, action)
+        truncated = not valid
+        
+        # Advance game state to next active player
+        self._advance_game()
+        
+        # Check termination
+        terminated = self.game_over or self.hand_complete
+        
+        obs = self._get_observation()
+        info = self._get_info()
+        
+        # Return 0.0 reward - training loop should use get_reward_for_player()
+        return obs, 0.0, terminated, truncated, info
+    
+    def _advance_game(self):
+        """
+        Advance game state after an action.
+        
+        Unlike _advance_to_hero_or_end(), this method does NOT auto-play
+        opponent actions. It just moves to the next active player or
+        advances the round if betting is complete.
+        
+        This allows each player to be stepped externally via step_action().
+        """
+        max_iterations = 20  # Safety limit for round transitions
+        
+        for _ in range(max_iterations):
+            # Check if hand is over (only one player left)
+            active_players = [p for p in self.players if not p.folded]
+            if len(active_players) <= 1:
+                self._end_hand()
+                return
+            
+            # Check if betting round is complete
+            if self._is_betting_round_complete():
+                self._advance_round()
+                if self.hand_complete:
+                    return
+                continue
+            
+            # Move to next active player
+            self._move_to_next_active_player()
+            return
+        
+        # Safety: if we hit max iterations, end the hand
+        self._end_hand()
+    
+    def get_reward_for_player(self, player_idx: int) -> float:
+        """
+        Calculate reward for a specific player.
+        
+        This is the normalized profit/loss for the player:
+        (final_chips - starting_chips) / starting_chips
+        
+        Args:
+            player_idx: Index of the player
+            
+        Returns:
+            Normalized reward for the player
+        """
+        if not self.hand_complete:
+            return 0.0
+        
+        player = self.players[player_idx]
+        starting_stack = self.config.starting_stack
+        
+        if starting_stack <= 0:
+            return 0.0
+        
+        # Reward = chips won/lost relative to starting stack
+        return (player.money - starting_stack) / starting_stack
+    
+    def get_active_player(self) -> Tuple[int, PokerPlayer]:
+        """
+        Get the active player who needs to act.
+        
+        Returns:
+            (player_idx, player) tuple
+        """
+        return (self.active_player_idx, self.players[self.active_player_idx])
+    
+    def is_hand_complete(self) -> bool:
+        """Check if the current hand is complete."""
+        return self.hand_complete or self.game_over
+
+
+# ============================================================
+# Demo: Running Multiple PokerPlayer Bots Through Environment
+# ============================================================
+
+if __name__ == "__main__":
+    from agents.monte_carlo_agent import MonteCarloAgent, RandomAgent, CallStationAgent
+    
+    print("=" * 60)
+    print("PokerEnv Demo: All PokerPlayer Bots Stepping Through")
+    print("=" * 60)
+    
+    # Create agents (all inherit from PokerPlayer)
+    agents = [
+        MonteCarloAgent("MonteCarlo", starting_money=1000, num_simulations=50),
+        RandomAgent("Random", starting_money=1000, fold_prob=0.2, raise_prob=0.3),
+        CallStationAgent("CallStation", starting_money=1000),
+    ]
+    
+    config = PokerEnvConfig(
+        big_blind=10,
+        small_blind=5,
+        starting_stack=1000,
+        max_players=len(agents),
+    )
+    
+    # Create environment - hero_idx doesn't matter for step_action()
+    env = PokerEnv(players=agents, config=config, hero_idx=0)
+    
+    # Track rewards for each player
+    reward_tracker = {agent.id: 0.0 for agent in agents}
+    
+    # Play multiple hands
+    num_hands = 5
+    
+    for hand_num in range(1, num_hands + 1):
+        print(f"\n{'='*60}")
+        print(f"Hand {hand_num}")
+        print(f"{'='*60}")
+        
+        obs, info = env.reset()
+        
+        # Track starting chips for each player
+        starting_chips = {agent.id: agent.money for agent in agents}
+        
+        print(f"Starting chips: {starting_chips}")
+        print(f"Pot after blinds: ${env.pot.money}")
+        
+        step_count = 0
+        max_steps = 50  # Safety limit
+        
+        while not env.is_hand_complete() and step_count < max_steps:
+            step_count += 1
+            
+            # Get active player
+            player_idx, player = env.get_active_player()
+            
+            # Player decides their action (using their get_action method)
+            action = player.get_action(
+                hole_cards=player.get_hole_cards(),
+                board=env.board,
+                pot=env.pot.money,
+                current_bet=env.current_bet,
+                min_raise=env.min_raise,
+                players=[p.get_public_info() for p in env.players],
+                my_idx=player_idx,
+            )
+            
+            print(f"  Step {step_count}: {player.id} -> {action.action_type.value}"
+                  f" (amount={action.amount})")
+            
+            # Step the environment with this action
+            obs, reward, terminated, truncated, info = env.step_action(action)
+            
+            if terminated or truncated:
+                break
+        
+        # Calculate rewards for each player after hand ends
+        print(f"\nHand {hand_num} Complete!")
+        print(f"  Round: {env.round_stage}")
+        print(f"  Final pot: ${env.pot.money}")
+        
+        for i, agent in enumerate(agents):
+            hand_reward = env.get_reward_for_player(i)
+            chip_change = agent.money - starting_chips[agent.id]
+            reward_tracker[agent.id] += hand_reward
+            print(f"  {agent.id}: ${agent.money} "
+                  f"(change: {'+' if chip_change >= 0 else ''}{chip_change}, "
+                  f"reward: {hand_reward:+.3f})")
+    
+    # Final summary
+    print(f"\n{'='*60}")
+    print("Final Summary After All Hands")
+    print(f"{'='*60}")
+    
+    for agent in agents:
+        print(f"  {agent.id}:")
+        print(f"    Final chips: ${agent.money}")
+        print(f"    Total reward: {reward_tracker[agent.id]:+.3f}")
+    
+    print(f"\n✓ Demo complete! All PokerPlayer bots successfully stepped through.")
