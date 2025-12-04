@@ -276,3 +276,313 @@ class PokerPlayer(ABC):
     
     def __str__(self) -> str:
         return self.id if self.id else self.__class__.__name__
+
+
+# ============================================================
+# SimplePokerAgent - PokerPlayer with legacy PokerAgent API
+# ============================================================
+
+class SimplePokerAgent(PokerPlayer):
+    """
+    A concrete PokerPlayer implementation with backward-compatible
+    PokerAgent-style API.
+    
+    This class provides the same interface as the deprecated PokerAgent
+    but inherits from PokerPlayer. It can be used as a drop-in replacement
+    for PokerAgent in simulations and tests.
+    
+    Key differences from PokerPlayer base class:
+    - Uses `name` instead of `id` for the player name
+    - Uses `chips` instead of `money` for the chip stack
+    - Uses `is_folded`/`is_all_in` instead of `folded`/`all_in`
+    - Uses `current_bet` instead of `bet` for current round bet
+    - Provides `make_decision()` instead of abstract `get_action()`
+    - Provides `receive_cards()` instead of `deal_hand()`
+    - Provides `place_bet()` instead of `move_money()`
+    - Provides `evaluate_hand()` for hand evaluation
+    """
+    
+    def __init__(self, name: Optional[str] = None, starting_chips: int = 1000):
+        """
+        Initialize a poker agent.
+        
+        Args:
+            name: Optional name for the agent (default: None)
+            starting_chips: Starting chip stack (default: 1000)
+        """
+        super().__init__(player_id=name or "", starting_money=starting_chips)
+        self._name = name
+        self._evaluator = treys.Evaluator()
+    
+    # ---- Property aliases for backward compatibility ----
+    
+    @property
+    def name(self) -> Optional[str]:
+        """Get the agent's name."""
+        return self._name
+    
+    @name.setter
+    def name(self, value: Optional[str]):
+        """Set the agent's name."""
+        self._name = value
+        self.id = value or ""
+    
+    @property
+    def chips(self) -> int:
+        """Get current chip stack (alias for money)."""
+        return self.money
+    
+    @chips.setter
+    def chips(self, value: int):
+        """Set current chip stack (alias for money)."""
+        self.money = value
+    
+    @property
+    def hole_cards(self) -> List[int]:
+        """Get hole cards (alias for _private_cards)."""
+        return self._private_cards
+    
+    @hole_cards.setter
+    def hole_cards(self, value: List[int]):
+        """Set hole cards (alias for _private_cards)."""
+        self._private_cards = value
+    
+    @property
+    def current_bet(self) -> int:
+        """Get current bet this round (alias for bet)."""
+        return self.bet
+    
+    @current_bet.setter
+    def current_bet(self, value: int):
+        """Set current bet this round (alias for bet)."""
+        self.bet = value
+    
+    @property
+    def is_folded(self) -> bool:
+        """Check if player has folded (alias for folded)."""
+        return self.folded
+    
+    @is_folded.setter
+    def is_folded(self, value: bool):
+        """Set folded state (alias for folded)."""
+        self.folded = value
+    
+    @property
+    def is_all_in(self) -> bool:
+        """Check if player is all-in (alias for all_in)."""
+        return self.all_in
+    
+    @is_all_in.setter
+    def is_all_in(self, value: bool):
+        """Set all-in state (alias for all_in)."""
+        self.all_in = value
+    
+    # ---- Method aliases for backward compatibility ----
+    
+    def receive_cards(self, cards: List[int]):
+        """
+        Receive hole cards.
+        
+        Args:
+            cards: List of 2 card integers
+        """
+        self._private_cards = cards
+    
+    def reset_for_new_hand(self):
+        """Reset agent state for a new hand."""
+        self.reset()
+    
+    def reset_current_bet(self):
+        """Reset current bet for a new betting round."""
+        self.reset_bet()
+    
+    def get_chips(self) -> int:
+        """Get current chip stack."""
+        return self.money
+    
+    def add_chips(self, amount: int):
+        """
+        Add chips to stack (when winning).
+        
+        Args:
+            amount: Number of chips to add
+        """
+        self.add_winnings(amount)
+    
+    def place_bet(self, amount: int) -> int:
+        """
+        Place a bet (deducts chips and tracks bet).
+        
+        Args:
+            amount: Amount to bet
+            
+        Returns:
+            Actual amount bet (may be less if all-in)
+        """
+        # Prevent negative bets
+        if amount < 0:
+            return 0
+        
+        actual_bet = min(amount, self.money)
+        self.money -= actual_bet
+        self.bet += actual_bet
+        self.total_invested += actual_bet
+        
+        if self.money == 0:
+            self.all_in = True
+        
+        return actual_bet
+    
+    def evaluate_hand(self, board: List[int]) -> Tuple[Optional[int], Optional[int], Optional[str], Optional[float]]:
+        """
+        Evaluate the strength of the current hand given the board.
+        
+        Args:
+            board: List of community cards
+            
+        Returns:
+            Tuple of (score, hand_class, hand_name, percentage)
+        """
+        if len(board) < 3:
+            return None, None, None, None
+        
+        score = self._evaluator.evaluate(board, self._private_cards)
+        hand_class = self._evaluator.get_rank_class(score)
+        hand_name = self._evaluator.class_to_string(hand_class)
+        percentage = self._evaluator.get_five_card_rank_percentage(score)
+        
+        return score, hand_class, hand_name, percentage
+    
+    def calculate_equity(self, board: List[int], opponent_hands: List[List[int]], 
+                         remaining_deck_cards: List[int], num_simulations: int = 1000) -> float:
+        """
+        Calculate equity (win probability) against opponents using Monte Carlo simulation.
+        
+        Args:
+            board: Current community cards
+            opponent_hands: List of opponent hole cards
+            remaining_deck_cards: Cards still in the deck
+            num_simulations: Number of simulations to run
+            
+        Returns:
+            Float representing win probability (0.0 to 1.0)
+        """
+        from utils.poker_utils import calculate_hand_equity
+        return calculate_hand_equity(self._private_cards, board, opponent_hands, 
+                                      remaining_deck_cards, num_simulations)
+    
+    def _calculate_all_equities(self, board: List[int], hands: List[List[int]], 
+                                remaining_deck_cards: List[int], num_simulations: int = 1000) -> List[float]:
+        """
+        Calculate equity for all hands in the game.
+        
+        Uses the standalone utility function from utils.poker_utils.
+        
+        Args:
+            board: Current community cards
+            hands: List of all player hands
+            remaining_deck_cards: Cards still in the deck
+            num_simulations: Number of simulations to run
+            
+        Returns:
+            List of win probabilities for each hand
+        """
+        from utils.poker_utils import calculate_all_equities
+        return calculate_all_equities(board, hands, remaining_deck_cards, num_simulations)
+    
+    def make_decision(self, board: List[int], pot_size: int, current_bet_to_call: int, 
+                      min_raise: int) -> Tuple[str, int]:
+        """
+        Make a betting decision. Override this method to implement custom strategies.
+        
+        Args:
+            board: Current community cards
+            pot_size: Current pot size
+            current_bet_to_call: Amount needed to call
+            min_raise: Minimum raise amount
+            
+        Returns:
+            Tuple of (action, amount) where:
+                action: 'fold', 'call', 'raise', 'check'
+                amount: Amount to bet (0 for fold/check/call, raise amount for raise)
+        """
+        # Default strategy: simple equity-based decisions
+        if self.folded or self.all_in:
+            return ('check', 0)
+        
+        # If no board cards yet, use simple pre-flop strategy
+        if len(board) == 0:
+            return self._preflop_decision(current_bet_to_call, min_raise)
+        
+        # Calculate hand strength
+        score, _, hand_name, percentage = self.evaluate_hand(board)
+        
+        # Simple strategy based on hand strength (percentage is 0=best, 1=worst)
+        if percentage < 0.3:  # Strong hand
+            if current_bet_to_call == 0:
+                return ('raise', min_raise)
+            elif current_bet_to_call <= pot_size * 0.5:
+                return ('raise', current_bet_to_call + min_raise)
+            else:
+                return ('call', current_bet_to_call)
+        elif percentage < 0.6:  # Medium hand
+            if current_bet_to_call == 0:
+                return ('check', 0)
+            elif current_bet_to_call <= pot_size * 0.3:
+                return ('call', current_bet_to_call)
+            else:
+                return ('fold', 0)
+        else:  # Weak hand
+            if current_bet_to_call == 0:
+                return ('check', 0)
+            else:
+                return ('fold', 0)
+    
+    def _preflop_decision(self, current_bet_to_call: int, min_raise: int) -> Tuple[str, int]:
+        """Simple pre-flop decision based on hole cards."""
+        if current_bet_to_call == 0:
+            return ('check', 0)
+        elif current_bet_to_call <= self.money * 0.1:
+            return ('call', current_bet_to_call)
+        else:
+            return ('fold', 0)
+    
+    # ---- Implementation of abstract get_action method ----
+    
+    def get_action(
+        self,
+        hole_cards: List[int],
+        board: List[int],
+        pot: int,
+        current_bet: int,
+        min_raise: int,
+        players: List[PokerPlayerPublic],
+        my_idx: int,
+    ) -> PokerAction:
+        """
+        Decide on an action given the game state.
+        
+        This implementation adapts the make_decision interface to the
+        PokerPlayer get_action interface.
+        """
+        my_info = players[my_idx]
+        to_call = current_bet - my_info.bet
+        
+        action_str, amount = self.make_decision(board, pot, to_call, min_raise)
+        
+        if action_str == 'fold':
+            return PokerAction.fold()
+        elif action_str == 'check':
+            return PokerAction.check()
+        elif action_str == 'call':
+            return PokerAction.call(min(to_call, self.money))
+        elif action_str == 'raise':
+            # For raise, amount is the raise amount (on top of call)
+            raise_total = to_call + amount
+            return PokerAction.raise_to(min(raise_total, self.money))
+        else:
+            return PokerAction.check()
+    
+    def __str__(self) -> str:
+        """String representation of the agent."""
+        return self._name if self._name else "Agent"
