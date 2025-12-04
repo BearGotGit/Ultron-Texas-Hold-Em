@@ -64,6 +64,10 @@ class PokerEnvConfig:
     small_blind: int = 5
     starting_stack: int = 1000
     max_players: int = MAX_PLAYERS
+    # Penalty coefficient applied to normalized max raise fraction per hand.
+    # Reward penalty = all_in_penalty_alpha * max_raise_fraction
+    # Set to 0.0 to disable. Small positive values (e.g., 0.05) discourage reckless all-ins.
+    all_in_penalty_alpha: float = 0.05
 
 
 # ============================================================
@@ -367,6 +371,10 @@ class PokerEnv(gym.Env):
         
         # Track hero's chips at hand start (after blinds posted) for reward calculation
         self.hero_hand_start_chips = self.players[self.hero_idx].money
+
+        # Track the maximum raise fraction applied by the hero during the hand
+        # (raise amount divided by starting stack). Used for reward shaping.
+        self.current_hand_max_raise_fraction = 0.0
         
         # Set starting player (left of big blind for pre-flop)
         self.active_player_idx = (self.dealer_position + 3) % self.num_players
@@ -486,6 +494,13 @@ class PokerEnv(gym.Env):
                 self.last_aggressor_idx = player_idx
                 # Reset action tracking for raises
                 self.players_acted_this_round = {player_idx}
+                # Track raise fraction for the hero (or any player) relative to starting stack
+                try:
+                    raise_frac = float(raise_amount) / float(self.config.starting_stack)
+                except Exception:
+                    raise_frac = 0.0
+                if raise_frac > getattr(self, 'current_hand_max_raise_fraction', 0.0):
+                    self.current_hand_max_raise_fraction = raise_frac
         
         self.players_acted_this_round.add(player_idx)
         return True
@@ -656,7 +671,18 @@ class PokerEnv(gym.Env):
             # Edge case: hero had no chips at hand start
             return 0.0
         reward = (hero.money - initial_chips) / initial_chips  # Normalized
-        
+
+        # Apply small penalty proportional to the maximum raise fraction observed
+        # during the hand to discourage reckless all-ins. The penalty coefficient
+        # is configured in `PokerEnvConfig.all_in_penalty_alpha` and can be 0.0
+        # to disable this behavior.
+        alpha = getattr(self.config, 'all_in_penalty_alpha', 0.0)
+        max_raise_frac = getattr(self, 'current_hand_max_raise_fraction', 0.0)
+        penalty = float(alpha) * float(max_raise_frac)
+
+        if penalty != 0.0:
+            reward = reward - penalty
+
         return reward
     
     def _get_observation(self) -> np.ndarray:

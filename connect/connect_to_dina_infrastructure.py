@@ -25,39 +25,70 @@ Usage:
 
 import asyncio
 import json
-from agents.rl_agent import RLAgent
 import websockets
 import argparse
-
-# ===== CLIENT =====
-
-# Init agent
-# Option 1: Random agent
+from treys import Card
+from agents.rl_agent import RLAgent
 from agents.monte_carlo_agent import RandomAgent
-agent = RandomAgent(player_id="UltronRandom", starting_money=1000)
+from agents.poker_player import PokerPlayerPublic
 
-# Option 2: RL agent from checkpoint
-# from agents.rl_agent import RLAgent
-# from training.train_rl_model import PPOConfig  # Needed for unpickling
-# agent = RLAgent.from_checkpoint(
-#     checkpoint_path="checkpoints/2025-12-1/100k/final.pt",
-#     player_id="YourBotName",
-#     starting_money=1000,
-# )
+# ===== HELPER FUNCTIONS =====
 
-# ===== CONNECT =====
-
-async def play_poker():
-    API_KEY = "dev"
-    TABLE = "table-1"
-    PLAYER = agent.player_id  # Use agent's player_id
+def convert_cards(card_strings):
+    """
+    Convert server card format to Treys integers.
     
-    url = f"ws://localhost:8080/ws?apiKey={API_KEY}&table={TABLE}&player={PLAYER}"
+    Server format: ["Ah", "Kd", "Qs", ...]
+    Treys format: integers (use Card.new() from treys)
+    """
+    return [Card.new(card_str) for card_str in card_strings] if card_strings else []
+
+
+def convert_players(server_players):
+    """
+    Convert server player list to PokerPlayerPublic list.
+    
+    Server format: [{"name": "p1", "chips": 1000, "bet": 50, "folded": false, ...}, ...]
+    Our format: [PokerPlayerPublic(id, money, folded, all_in, bet), ...]
+    """
+    return [
+        PokerPlayerPublic(
+            id=p['name'],
+            money=p['chips'],
+            folded=p['folded'],
+            all_in=p.get('all_in', False),
+            bet=p['bet']
+        )
+        for p in server_players
+    ]
+
+
+def find_my_index(players, my_name):
+    """Find our index in the player list."""
+    for i, player in enumerate(players):
+        if player.id == my_name:
+            return i
+    return 0
+
+
+# ===== WEBSOCKET CLIENT =====
+
+async def play_poker(agent, api_key, table, player_name):
+    """
+    Main game loop for playing poker via WebSocket.
+    
+    Args:
+        agent: PokerPlayer instance (RLAgent or RandomAgent)
+        api_key: API key for server
+        table: Table name
+        player_name: Player name to use
+    """
+    url = f"ws://localhost:8080/ws?apiKey={api_key}&table={table}&player={player_name}"
     
     async with websockets.connect(url) as ws:
         # Join the table
         await ws.send(json.dumps({"type": "join"}))
-        print(f"✓ Connected as {PLAYER}")
+        print(f"✓ Connected as {player_name}")
         
         # Main game loop
         while True:
@@ -74,7 +105,6 @@ async def play_poker():
             
             if msg['type'] == 'state':
                 # Server sent game state update
-                # Available fields: hand, phase, pot, current_player, hole_cards, community_cards, players, etc.
                 phase = msg.get('phase')
                 pot = msg.get('pot', 0)
                 
@@ -84,92 +114,46 @@ async def play_poker():
                 if phase not in ['PREFLOP', 'FLOP', 'TURN', 'RIVER']:
                     continue
                 
-                # TODO: Check if it's our turn
-                # if msg.get('current_player') != PLAYER:
-                #     continue
+                # Check if it's our turn
+                if msg.get('current_player') != player_name:
+                    continue
                 
-                # TODO: Convert server observation to our format
-                # hole_cards = convert_cards(msg.get('hole_cards', []))  # Convert to Treys integers
-                # board = convert_cards(msg.get('community_cards', []))
-                # current_bet = msg.get('current_bet', 0)
-                # min_raise = msg.get('min_raise', 0)
-                # players = convert_players(msg.get('players', []))  # Convert to PokerPlayerPublic list
-                # my_idx = find_my_index(players, PLAYER)
-                # 
-                # # Get action from agent
-                # action = agent.get_action(
-                #     hole_cards=hole_cards,
-                #     board=board,
-                #     pot=pot,
-                #     current_bet=current_bet,
-                #     min_raise=min_raise,
-                #     players=players,
-                #     my_idx=my_idx
-                # )
-                # # Returns: PokerAction(action_type=ActionType.FOLD/CHECK/CALL/RAISE, amount=...)
-                # 
-                # # Convert to server format and send
-                # # Server expects: {"type": "action", "action": "call"}
-                # #            or:  {"type": "action", "action": "raise", "amount": 120}
-                # if action.action_type.value == 'raise':
-                #     server_action = {
-                #         'type': 'action',
-                #         'action': 'raise',
-                #         'amount': action.amount
-                #     }
-                # else:
-                #     # fold, check, or call
-                #     server_action = {
-                #         'type': 'action',
-                #         'action': action.action_type.value
-                #     }
-                # 
-                # await ws.send(json.dumps(server_action))
-                # print(f"➤ Sent: {server_action['action']}{' $' + str(server_action.get('amount', '')) if 'amount' in server_action else ''}")
+                # Convert server observation to our format
+                hole_cards = convert_cards(msg.get('hole_cards', []))
+                board = convert_cards(msg.get('community_cards', []))
+                current_bet = msg.get('current_bet', 0)
+                min_raise = msg.get('min_raise', 0)
+                players = convert_players(msg.get('players', []))
+                my_idx = find_my_index(players, player_name)
+                
+                # Get action from agent
+                action = agent.get_action(
+                    hole_cards=hole_cards,
+                    board=board,
+                    pot=pot,
+                    current_bet=current_bet,
+                    min_raise=min_raise,
+                    players=players,
+                    my_idx=my_idx
+                )
+                
+                # Convert to server format and send
+                if action.action_type.value == 'raise':
+                    server_action = {
+                        'type': 'action',
+                        'action': 'raise',
+                        'amount': action.amount
+                    }
+                else:
+                    # fold, check, or call
+                    server_action = {
+                        'type': 'action',
+                        'action': action.action_type.value
+                    }
+                
+                await ws.send(json.dumps(server_action))
+                print(f"➤ Sent: {server_action['action']}{' $' + str(server_action.get('amount', '')) if 'amount' in server_action else ''}")
 
-# ===== HELPER FUNCTIONS =====
-
-def convert_cards(card_strings):
-    """
-    Convert server card format to Treys integers.
-    
-    Server format: ["Ah", "Kd", "Qs", ...]
-    Treys format: integers (use Card.new() from treys)
-    
-    Example:
-        from treys import Card
-        return [Card.new(card_str) for card_str in card_strings]
-    """
-    pass
-
-def convert_players(server_players):
-    """
-    Convert server player list to PokerPlayerPublic list.
-    
-    Server format: [{"name": "p1", "chips": 1000, "bet": 50, "folded": false, ...}, ...]
-    Our format: [PokerPlayerPublic(player_id, money, folded, all_in, bet), ...]
-    
-    Example:
-        from agents.poker_player import PokerPlayerPublic
-        return [
-            PokerPlayerPublic(
-                player_id=p['name'],
-                money=p['chips'],
-                folded=p['folded'],
-                all_in=p.get('all_in', False),
-                bet=p['bet']
-            )
-            for p in server_players
-        ]
-    """
-    pass
-
-def find_my_index(players, my_name):
-    """Find our index in the player list."""
-    for i, player in enumerate(players):
-        if player.player_id == my_name:
-            return i
-    return 0
 
 # ===== MAIN =====
 
@@ -186,12 +170,18 @@ if __name__ == "__main__":
     # Initialize agent based on args
     if args.random:
         agent = RandomAgent(player_id=args.player, starting_money=1000)
-    else:
+        print(f"Using RandomAgent: {args.player}")
+    elif args.checkpoint:
         agent = RLAgent.from_checkpoint(
             checkpoint_path=args.checkpoint,
             player_id=args.player,
             starting_money=1000,
         )
+        print(f"Loaded RL agent from: {args.checkpoint}")
+    else:
+        print("Error: Must specify either --random or --checkpoint <path>")
+        parser.print_help()
+        exit(1)
     
     # Run the async game loop
-    asyncio.run(play_poker())
+    asyncio.run(play_poker(agent, args.api_key, args.table, args.player))

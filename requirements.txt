@@ -1,0 +1,18 @@
+# Development / test dependencies for this project
+# Keep this small: runtime deps remain in `requirement.txt`.
+
+# Testing
+pytest==9.0.1
+pytest-cov==7.0.0
+
+# Env vars for local testing
+python-dotenv==1.2.1
+
+# Utilities used by tests / local tooling
+tqdm==4.67.1
+websocket-client==1.9.0
+
+# Optional: add linters / formatters as needed
+# ruff==0.18.0
+# black==24.3.0
+# mypy==1.8.4

@@ -11,7 +11,6 @@ from agents.human_player import HumanPlayer
 from agents.rl_agent import RLAgent
 from simulation.poker_simulator import TexasHoldemSimulation
 from training.ppo_model import PokerPPOModel
-from training.train_rl_model import PPOConfig
 from utils.device import DEVICE
 
 

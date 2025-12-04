@@ -72,10 +72,16 @@ class PPOConfig:
     run_name: str = field(default_factory=lambda: f"ppo_{int(time.time())}")
     save_dir: str = "checkpoints"
     log_dir: str = "runs"
+    # Self-play / population
+    opponent_dir: Optional[str] = None  # directory with opponent checkpoints
+    snapshot_population_prob: float = 0.1  # probability to snapshot to population on save
     
     # Debug
     debug: bool = False
     debug_episodes: int = 3  # Number of episodes to run in debug mode
+    # Rollout saving
+    save_rollouts: bool = False
+    rollout_dir: str = "rollouts"
 
 
 class RolloutBuffer:
@@ -260,6 +266,28 @@ class PPOTrainer:
             # Create opponents (Monte Carlo agents with varying parameters)
             opponents = []
             for j in range(1, self.config.num_players):
+                # If opponent population dir provided, try to load a random RL checkpoint
+                if self.config.opponent_dir:
+                    try:
+                        from pathlib import Path
+                        pop_path = Path(self.config.opponent_dir)
+                        ckpts = list(pop_path.glob("*.pt"))
+                        if ckpts:
+                            import random
+                            ckpt = str(random.choice(ckpts))
+                            from agents.rl_agent import RLAgent
+                            opponent = RLAgent.from_checkpoint(
+                                checkpoint_path=ckpt,
+                                player_id=f"Opponent-{i}-{j}",
+                                starting_money=self.config.starting_stack,
+                                device=self.device,
+                            )
+                            opponents.append(opponent)
+                            continue
+                    except Exception:
+                        # fallback to MonteCarloAgent if loading fails
+                        pass
+
                 aggression = 0.3 + 0.4 * (j / self.config.num_players)
                 opponent = MonteCarloAgent(
                     player_id=f"Opponent-{i}-{j}",
@@ -293,6 +321,24 @@ class PPOTrainer:
             envs.append(env)
         
         return envs
+
+    def _maybe_snapshot_to_population(self, checkpoint_path: str):
+        """Optionally copy saved checkpoints into the opponent population dir."""
+        if not self.config.opponent_dir:
+            return
+        try:
+            import random
+            if random.random() > self.config.snapshot_population_prob:
+                return
+            pop_dir = Path(self.config.opponent_dir)
+            pop_dir.mkdir(parents=True, exist_ok=True)
+            # copy file with a timestamped name
+            dest = pop_dir / f"pop_{int(time.time())}_{Path(checkpoint_path).name}"
+            from shutil import copy2
+            copy2(checkpoint_path, dest)
+            print(f"Saved population snapshot to {dest}")
+        except Exception as e:
+            print(f"Failed to snapshot to population: {e}")
     
     def _collect_rollouts(self) -> Dict[str, float]:
         """Collect rollout experience."""
@@ -371,6 +417,28 @@ class PPOTrainer:
         self.episode_rewards.extend(episode_rewards_batch)
         self.episode_lengths.extend(episode_lengths_batch)
         
+        # Optionally save rollouts to disk for offline analysis / behavior cloning
+        if getattr(self.config, "save_rollouts", False):
+            try:
+                rollout_path = Path(self.config.rollout_dir)
+                rollout_path.mkdir(parents=True, exist_ok=True)
+                filename = rollout_path / f"rollout_{self.config.run_name}_{self.global_step}.pt"
+                torch.save({
+                    "observations": self.buffer.observations.cpu(),
+                    "actions": self.buffer.actions.cpu(),
+                    "log_probs": self.buffer.log_probs.cpu(),
+                    "rewards": self.buffer.rewards.cpu(),
+                    "dones": self.buffer.dones.cpu(),
+                    "values": self.buffer.values.cpu(),
+                    "advantages": self.buffer.advantages.cpu(),
+                    "returns": self.buffer.returns.cpu(),
+                    "global_step": self.global_step,
+                    "config": self.config,
+                }, filename)
+                print(f"Saved rollouts to {filename}")
+            except Exception as e:
+                print(f"Failed to save rollouts: {e}")
+
         return {
             "mean_reward": np.mean(episode_rewards_batch) if episode_rewards_batch else 0.0,
             "mean_length": np.mean(episode_lengths_batch) if episode_lengths_batch else 0.0,
@@ -558,15 +626,40 @@ class PPOTrainer:
             "config": self.config,
         }, path)
         print(f"Saved checkpoint to {path}")
+        # Optionally snapshot this checkpoint into the opponent population
+        try:
+            self._maybe_snapshot_to_population(str(path))
+        except Exception:
+            pass
     
     def load_checkpoint(self, path: str):
         """Load model checkpoint."""
         checkpoint = torch.load(path, map_location=self.device)
-        self.model.load_state_dict(checkpoint["model_state_dict"])
-        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        self.global_step = checkpoint["global_step"]
-        self.num_updates = checkpoint["num_updates"]
-        print(f"Loaded checkpoint from {path}")
+
+        # Always load model weights if present
+        if "model_state_dict" in checkpoint:
+            self.model.load_state_dict(checkpoint["model_state_dict"])
+            print(f"Loaded model_state_dict from {path}")
+        else:
+            raise KeyError(f"Checkpoint {path} does not contain 'model_state_dict'")
+
+        # Load optimizer state if available; otherwise reinitialize optimizer
+        if "optimizer_state_dict" in checkpoint:
+            try:
+                self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+                print(f"Loaded optimizer_state_dict from {path}")
+            except Exception as e:
+                print(f"Warning: Failed to load optimizer state from {path}: {e}")
+                print("Reinitializing optimizer with current model parameters.")
+                self.optimizer = optim.Adam(self.model.parameters(), lr=self.config.learning_rate)
+        else:
+            print(f"Warning: checkpoint {path} has no 'optimizer_state_dict' — reinitializing optimizer.")
+            self.optimizer = optim.Adam(self.model.parameters(), lr=self.config.learning_rate)
+
+        # Safely load training progress metadata if present
+        self.global_step = checkpoint.get("global_step", getattr(self, "global_step", 0))
+        self.num_updates = checkpoint.get("num_updates", getattr(self, "num_updates", 0))
+        print(f"Loaded checkpoint metadata: global_step={self.global_step}, num_updates={self.num_updates}")
     
     def debug_run(self, num_episodes: int = 3):
         """
@@ -789,6 +882,11 @@ def main():
     parser.add_argument("--run-name", type=str, default=None, help="Run name for logging")
     parser.add_argument("--resume", type=str, default=None, help="Checkpoint to resume from")
     parser.add_argument("--save-path", type=str, default=None, help="Custom path for final model save")
+    parser.add_argument("--num-steps", type=int, default=None, help="Steps per rollout per env (overrides config.num_steps)")
+    parser.add_argument("--save-rollouts", action="store_true", help="Save rollouts to disk during training")
+    parser.add_argument("--rollout-dir", type=str, default=None, help="Directory to save rollouts (overrides config.rollout_dir)")
+    parser.add_argument("--opponent-dir", type=str, default=None, help="Directory with opponent checkpoints for self-play")
+    parser.add_argument("--snapshot-population-prob", type=float, default=None, help="Probability to snapshot saved checkpoints into opponent population")
     parser.add_argument("--debug", action="store_true", help="Run in debug mode (no training, just analysis)")
     parser.add_argument("--debug-episodes", type=int, default=3, help="Number of episodes to run in debug mode")
     args = parser.parse_args()
@@ -803,6 +901,17 @@ def main():
         debug=args.debug,
         debug_episodes=args.debug_episodes,
     )
+    # Override config fields from CLI when provided
+    if args.num_steps is not None:
+        config.num_steps = args.num_steps
+    if args.save_rollouts:
+        config.save_rollouts = True
+    if args.rollout_dir is not None:
+        config.rollout_dir = args.rollout_dir
+    if args.opponent_dir is not None:
+        config.opponent_dir = args.opponent_dir
+    if args.snapshot_population_prob is not None:
+        config.snapshot_population_prob = args.snapshot_population_prob
     
     trainer = PPOTrainer(config)
     
