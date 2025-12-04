@@ -243,6 +243,11 @@ class PlayerClient:
 
         # If a bot is attached, let it act automatically when it's our turn
         if (
+            print("[DEBUG] bot:", self.bot)
+            print("[DEBUG] my_seat:", my_seat)
+            print("[DEBUG] to_act_idx:", to_act_idx)
+            print("[DEBUG] phase:", phase)
+            print("[DEBUG] condition:",
             self.bot is not None
             and my_seat is not None
             and to_act_idx == my_seat
