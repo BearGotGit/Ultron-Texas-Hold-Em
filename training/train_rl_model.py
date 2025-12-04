@@ -35,7 +35,7 @@ class PPOConfig:
     """Configuration for PPO training."""
     # Environment
     num_envs: int = 1  # Single environment (single-threaded)
-    num_players: int = 7  # Players per table (hero + opponents)
+    num_players: int = 2  # Players per table (hero + opponents)
     starting_stack: int = 1000
     big_blind: int = 10
     small_blind: int = 5
@@ -313,13 +313,6 @@ class PPOTrainer:
                 small_blind=self.config.small_blind,
                 starting_stack=self.config.starting_stack,
                 max_players=self.config.num_players,
-                # Enable potential-based equity shaping to improve learning signal
-                use_equity_shaping=True,
-                equity_mc_samples=20,
-                equity_shaping_coef=1.0,
-                equity_shaping_gamma=self.config.gamma,
-                # keep per-step chip-delta off by default for stability
-                use_step_chip_delta=False,
             )
 
             env = PokerEnv(
