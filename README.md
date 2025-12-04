@@ -180,3 +180,23 @@ python training/train_model.py
 ```bash
 python training/evaluate_model.py
 ```
+
+4️⃣ Convert Repository to PDF:
+
+Generate a PDF document containing all source code files in the repository:
+
+```bash
+# Basic usage - creates repository_code.pdf in current directory
+python tools/repo_to_pdf.py
+
+# Specify custom output file
+python tools/repo_to_pdf.py --output my_code.pdf
+
+# Convert a specific directory
+python tools/repo_to_pdf.py --path /path/to/repo --output repo.pdf
+```
+
+The PDF includes:
+- Table of contents with all files
+- Each file with syntax-preserving formatting
+- Line numbers for easy reference
