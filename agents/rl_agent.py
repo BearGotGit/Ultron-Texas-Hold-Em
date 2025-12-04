@@ -255,22 +255,21 @@ class RLAgent(PokerAgent):
         obs_parts.append(hand_features)
         
         # 3. Player features (MAX_PLAYERS x 4)
-        # Use config values for normalization
+        # Use config values for normalization (calculated once before loop)
         starting_stack = self.temp_env.config.starting_stack
         big_blind = self.temp_env.config.big_blind
+        stack_normalizer = np.log1p(starting_stack)
+        bb_normalizer = np.log1p(big_blind) if big_blind > 0 else 1.0
         
-        player_features_dim = MAX_PLAYERS * FEATURES_PER_PLAYER
-        player_features = np.zeros(player_features_dim, dtype=np.float32)
+        player_features = np.zeros(MAX_PLAYERS * FEATURES_PER_PLAYER, dtype=np.float32)
         
         for i, player in enumerate(players):
             if i >= MAX_PLAYERS:
                 break
             base = i * FEATURES_PER_PLAYER
             # Normalize money: log(money+1) / log(starting_stack+1)
-            stack_normalizer = np.log1p(starting_stack)
             player_features[base] = np.log1p(player.money) / stack_normalizer
             # Normalize bet: log(bet+1) / log(big_blind+1)
-            bb_normalizer = np.log1p(big_blind) if big_blind > 0 else 1.0
             player_features[base + 1] = np.log1p(player.bet) / bb_normalizer
             # Binary flags
             player_features[base + 2] = float(player.folded)

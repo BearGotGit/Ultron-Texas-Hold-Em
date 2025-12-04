@@ -258,7 +258,7 @@ class TestRLAgentBuildObservation:
         # Expected observation dimension from PokerEnv:
         # Card encodings: 7 * 53 = 371
         # Hand features: 10
-        # Player features: 9 * 4 = 36
+        # Player features: MAX_PLAYERS (9) * 4 = 36 (always uses MAX_PLAYERS slots)
         # Global features: 6
         # Total: 371 + 10 + 36 + 6 = 423
         expected_dim = 423
