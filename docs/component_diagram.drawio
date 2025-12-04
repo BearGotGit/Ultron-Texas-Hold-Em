@@ -1,0 +1,215 @@
+<mxfile host="app.diagrams.net" modified="2024-01-01T00:00:00.000Z" agent="Mozilla/5.0" etag="component-diagram" version="21.0.0" type="device">
+  <diagram name="Component Diagram" id="component-diagram-1">
+    <mxGraphModel dx="1434" dy="836" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        
+        <!-- Title -->
+        <mxCell id="title" value="&lt;b&gt;Texas Hold'em RL System - Component Diagram&lt;/b&gt;" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=24;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="500" y="20" width="600" height="40" as="geometry" />
+        </mxCell>
+        
+        <!-- Main Components Container -->
+        
+        <!-- Agents Package -->
+        <mxCell id="agents-pkg" value="&lt;b&gt;agents/&lt;/b&gt;" style="shape=folder;fontStyle=1;tabWidth=110;tabHeight=30;tabPosition=left;html=1;boundedLbl=1;labelInHeader=1;container=1;collapsible=0;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="80" y="100" width="340" height="300" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="poker-player" value="&lt;b&gt;PokerPlayer&lt;/b&gt;&#xa;(Abstract Base Class)&#xa;───────────&#xa;• id: str&#xa;• money: int&#xa;• folded: bool&#xa;• all_in: bool&#xa;• bet: int&#xa;───────────&#xa;+ get_action()&#xa;+ move_money()&#xa;+ fold()&#xa;+ is_active()" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#fff2cc;strokeColor=#d6b656;verticalAlign=top;" vertex="1" parent="agents-pkg">
+          <mxGeometry x="20" y="40" width="140" height="200" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="mc-agent" value="&lt;b&gt;MonteCarloAgent&lt;/b&gt;&#xa;───────────&#xa;• num_simulations&#xa;• aggression&#xa;• bluff_frequency&#xa;───────────&#xa;+ _calculate_equity()&#xa;+ _preflop_decision()&#xa;+ _make_decision()" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#d5e8d4;strokeColor=#82b366;verticalAlign=top;" vertex="1" parent="agents-pkg">
+          <mxGeometry x="180" y="40" width="140" height="130" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="rl-agent" value="&lt;b&gt;RLAgent&lt;/b&gt;&#xa;───────────&#xa;• model: PPOModel&#xa;• device: torch.device&#xa;───────────&#xa;+ make_decision()&#xa;+ _sync_temp_env()" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#e1d5e7;strokeColor=#9673a6;verticalAlign=top;" vertex="1" parent="agents-pkg">
+          <mxGeometry x="180" y="180" width="140" height="100" as="geometry" />
+        </mxCell>
+        
+        <!-- Inheritance arrows -->
+        <mxCell id="inherit1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=0;strokeWidth=2;" edge="1" parent="agents-pkg" source="mc-agent" target="poker-player">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="inherit2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=0;strokeWidth=2;" edge="1" parent="agents-pkg" source="rl-agent" target="poker-player">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        
+        <!-- Simulation Package -->
+        <mxCell id="sim-pkg" value="&lt;b&gt;simulation/&lt;/b&gt;" style="shape=folder;fontStyle=1;tabWidth=110;tabHeight=30;tabPosition=left;html=1;boundedLbl=1;labelInHeader=1;container=1;collapsible=0;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="460" y="100" width="340" height="300" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="poker-env" value="&lt;b&gt;PokerEnv&lt;/b&gt;&#xa;(Gymnasium Environment)&#xa;───────────&#xa;• players: List[PokerPlayer]&#xa;• pot: Pot&#xa;• board: List[int]&#xa;• round_stage: RoundStage&#xa;• current_bet: int&#xa;• min_raise: int&#xa;───────────&#xa;+ reset()&#xa;+ step(action)&#xa;+ _get_observation()&#xa;+ _apply_action()" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#ffe6cc;strokeColor=#d79b00;verticalAlign=top;" vertex="1" parent="sim-pkg">
+          <mxGeometry x="20" y="40" width="180" height="220" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="poker-sim" value="&lt;b&gt;TexasHoldemSimulation&lt;/b&gt;&#xa;───────────&#xa;• agents: List[Agent]&#xa;• deck: Deck&#xa;• evaluator: Evaluator&#xa;───────────&#xa;+ deal_hole_cards()&#xa;+ run_betting_round()&#xa;+ award_pot()&#xa;+ evaluate_hands()" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#ffe6cc;strokeColor=#d79b00;verticalAlign=top;" vertex="1" parent="sim-pkg">
+          <mxGeometry x="210" y="40" width="120" height="180" as="geometry" />
+        </mxCell>
+        
+        <!-- Training Package -->
+        <mxCell id="train-pkg" value="&lt;b&gt;training/&lt;/b&gt;" style="shape=folder;fontStyle=1;tabWidth=110;tabHeight=30;tabPosition=left;html=1;boundedLbl=1;labelInHeader=1;container=1;collapsible=0;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="840" y="100" width="360" height="300" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="ppo-model" value="&lt;b&gt;PokerPPOModel&lt;/b&gt;&#xa;(nn.Module)&#xa;───────────&#xa;• card_embedding&#xa;• hand_embedding&#xa;• numeric_embedding&#xa;• shared_trunk&#xa;• fold_head&#xa;• bet_head&#xa;• value_head&#xa;───────────&#xa;+ forward()&#xa;+ get_action_and_value()&#xa;+ evaluate_actions()" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#f8cecc;strokeColor=#b85450;verticalAlign=top;" vertex="1" parent="train-pkg">
+          <mxGeometry x="20" y="40" width="160" height="220" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="ppo-trainer" value="&lt;b&gt;PPOTrainer&lt;/b&gt;&#xa;───────────&#xa;• model: PPOModel&#xa;• optimizer: Adam&#xa;• buffer: RolloutBuffer&#xa;───────────&#xa;+ train()&#xa;+ _collect_rollouts()&#xa;+ _update_policy()&#xa;+ evaluate()" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#f8cecc;strokeColor=#b85450;verticalAlign=top;" vertex="1" parent="train-pkg">
+          <mxGeometry x="195" y="40" width="145" height="170" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="rollout-buffer" value="&lt;b&gt;RolloutBuffer&lt;/b&gt;&#xa;───────────&#xa;• observations&#xa;• actions&#xa;• rewards&#xa;• advantages&#xa;───────────&#xa;+ add()&#xa;+ compute_returns()" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#f8cecc;strokeColor=#b85450;verticalAlign=top;" vertex="1" parent="train-pkg">
+          <mxGeometry x="195" y="220" width="145" height="115" as="geometry" />
+        </mxCell>
+        
+        <!-- Utils Package -->
+        <mxCell id="utils-pkg" value="&lt;b&gt;utils/&lt;/b&gt;" style="shape=folder;fontStyle=1;tabWidth=80;tabHeight=30;tabPosition=left;html=1;boundedLbl=1;labelInHeader=1;container=1;collapsible=0;whiteSpace=wrap;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="100" width="180" height="130" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="device" value="&lt;b&gt;device.py&lt;/b&gt;&#xa;DEVICE = cuda/cpu" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#d0d0d0;strokeColor=#808080;" vertex="1" parent="utils-pkg">
+          <mxGeometry x="15" y="40" width="150" height="35" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="tb-reader" value="&lt;b&gt;tensorboard_reader.py&lt;/b&gt;&#xa;TensorBoard logging" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#d0d0d0;strokeColor=#808080;" vertex="1" parent="utils-pkg">
+          <mxGeometry x="15" y="80" width="150" height="35" as="geometry" />
+        </mxCell>
+        
+        <!-- Data Types -->
+        <mxCell id="data-types" value="&lt;b&gt;Data Types (poker_player.py)&lt;/b&gt;" style="shape=folder;fontStyle=1;tabWidth=200;tabHeight=30;tabPosition=left;html=1;boundedLbl=1;labelInHeader=1;container=1;collapsible=0;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#666666;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="80" y="450" width="500" height="180" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="action-type" value="&lt;b&gt;ActionType&lt;/b&gt;&#xa;(Enum)&#xa;───────────&#xa;• FOLD&#xa;• CHECK&#xa;• CALL&#xa;• RAISE" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#fff;strokeColor=#333;" vertex="1" parent="data-types">
+          <mxGeometry x="20" y="40" width="100" height="120" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="poker-action" value="&lt;b&gt;PokerAction&lt;/b&gt;&#xa;(dataclass)&#xa;───────────&#xa;• action_type&#xa;• amount: int&#xa;───────────&#xa;+ fold()&#xa;+ check()&#xa;+ call()&#xa;+ raise_to()" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#fff;strokeColor=#333;" vertex="1" parent="data-types">
+          <mxGeometry x="140" y="40" width="100" height="130" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="round-stage" value="&lt;b&gt;RoundStage&lt;/b&gt;&#xa;(Literal)&#xa;───────────&#xa;• pre-flop&#xa;• flop&#xa;• turn&#xa;• river&#xa;• showdown" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#fff;strokeColor=#333;" vertex="1" parent="data-types">
+          <mxGeometry x="260" y="40" width="100" height="130" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="game-state" value="&lt;b&gt;PokerGameState&lt;/b&gt;&#xa;(dataclass)&#xa;───────────&#xa;• players&#xa;• pot, board&#xa;• current_bet&#xa;• dealer_position&#xa;• game_over" style="rounded=0;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#fff;strokeColor=#333;" vertex="1" parent="data-types">
+          <mxGeometry x="380" y="40" width="100" height="130" as="geometry" />
+        </mxCell>
+        
+        <!-- External Dependencies -->
+        <mxCell id="ext-deps" value="&lt;b&gt;External Dependencies&lt;/b&gt;" style="shape=folder;fontStyle=1;tabWidth=160;tabHeight=30;tabPosition=left;html=1;boundedLbl=1;labelInHeader=1;container=1;collapsible=0;whiteSpace=wrap;fillColor=#e6e6e6;strokeColor=#999999;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="620" y="450" width="400" height="180" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="pytorch" value="&lt;b&gt;PyTorch&lt;/b&gt;&#xa;• torch.nn&#xa;• torch.optim&#xa;• torch.distributions" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#b3b3ff;strokeColor=#6666cc;" vertex="1" parent="ext-deps">
+          <mxGeometry x="20" y="40" width="110" height="70" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="gymnasium" value="&lt;b&gt;Gymnasium&lt;/b&gt;&#xa;• gym.Env&#xa;• spaces.Box" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#b3ffb3;strokeColor=#66cc66;" vertex="1" parent="ext-deps">
+          <mxGeometry x="145" y="40" width="110" height="70" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="treys" value="&lt;b&gt;Treys&lt;/b&gt;&#xa;• Card&#xa;• Deck&#xa;• Evaluator" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#ffb3b3;strokeColor=#cc6666;" vertex="1" parent="ext-deps">
+          <mxGeometry x="270" y="40" width="110" height="70" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="numpy" value="&lt;b&gt;NumPy&lt;/b&gt;&#xa;Array operations" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#ffffb3;strokeColor=#cccc66;" vertex="1" parent="ext-deps">
+          <mxGeometry x="20" y="120" width="110" height="50" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="tensorboard" value="&lt;b&gt;TensorBoard&lt;/b&gt;&#xa;Training visualization" style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=5;fillColor=#ffb3ff;strokeColor=#cc66cc;" vertex="1" parent="ext-deps">
+          <mxGeometry x="145" y="120" width="110" height="50" as="geometry" />
+        </mxCell>
+        
+        <!-- Connection Arrows between main components -->
+        <mxCell id="conn1" value="" style="endArrow=classic;startArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="420" y="250" as="sourcePoint" />
+            <mxPoint x="460" y="250" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn1-label" value="uses" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="conn1">
+          <mxGeometry x="-0.1" y="-1" relative="1" as="geometry">
+            <mxPoint x="1" y="-11" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        
+        <mxCell id="conn2" value="" style="endArrow=classic;startArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="800" y="250" as="sourcePoint" />
+            <mxPoint x="840" y="250" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn2-label" value="trains in" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="conn2">
+          <mxGeometry x="-0.1" y="-1" relative="1" as="geometry">
+            <mxPoint x="1" y="-11" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        
+        <mxCell id="conn3" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#666666;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="250" y="400" as="sourcePoint" />
+            <mxPoint x="250" y="450" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn3-label" value="defines" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="conn3">
+          <mxGeometry x="-0.1" y="-1" relative="1" as="geometry">
+            <mxPoint x="21" y="-11" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        
+        <mxCell id="conn4" value="" style="endArrow=classic;html=1;rounded=0;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1">
+          <mxGeometry width="50" height="50" relative="1" as="geometry">
+            <mxPoint x="630" y="410" as="sourcePoint" />
+            <mxPoint x="630" y="450" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="conn4-label" value="depends on" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontSize=10;" vertex="1" connectable="0" parent="conn4">
+          <mxGeometry x="-0.1" y="-1" relative="1" as="geometry">
+            <mxPoint x="31" y="-11" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        
+        <!-- Legend -->
+        <mxCell id="legend" value="&lt;b&gt;Legend&lt;/b&gt;" style="swimlane;startSize=25;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="280" width="200" height="150" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="leg1" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="35" width="30" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="leg1-text" value="Abstract Class" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="30" width="80" height="25" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="leg2" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="60" width="30" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="leg2-text" value="Monte Carlo Agent" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="55" width="100" height="25" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="leg3" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="85" width="30" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="leg3-text" value="RL Agent" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="80" width="80" height="25" as="geometry" />
+        </mxCell>
+        
+        <mxCell id="leg4" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="legend">
+          <mxGeometry x="10" y="110" width="30" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="leg4-text" value="Training Components" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=10;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="105" width="120" height="25" as="geometry" />
+        </mxCell>
+        
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
