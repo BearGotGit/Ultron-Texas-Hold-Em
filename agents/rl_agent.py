@@ -113,7 +113,7 @@ class RLAgent(SimplePokerAgent):
         
         # Update hero's state (player 0)
         hero = self.temp_env.players[0]
-        hero.hole_cards = self.hole_cards[:]
+        hero._private_cards = self.hole_cards[:]
         hero.money = self.chips
         hero.bet = self.current_bet
         hero.folded = self.is_folded
