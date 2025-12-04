@@ -10,7 +10,24 @@ import torch
 from agents.human_player import HumanPlayer
 from agents.rl_agent import RLAgent
 from simulation.poker_simulator import TexasHoldemSimulation
+from training.ppo_model import PokerPPOModel
+from training.train_rl_model import PPOConfig
 from utils.device import DEVICE
+
+
+def load_rl_model(checkpoint_path, device):
+    """Load trained RL model from checkpoint."""
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    
+    model = PokerPPOModel(
+        card_embed_dim=64,
+        hidden_dim=256,
+        num_shared_layers=2,
+    ).to(device)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.eval()
+    
+    return model, checkpoint['global_step']
 
 
 def play_vs_rl(
@@ -32,18 +49,20 @@ def play_vs_rl(
     print("🃏 TEXAS HOLD'EM: HUMAN vs RL AGENT")
     print("="*70)
     
-    # Load model using RLAgent.from_checkpoint
+    # Load model
+    device = DEVICE
     print(f"\nLoading model from {model_path}...")
-    rl_agent = RLAgent.from_checkpoint(
-        checkpoint_path=model_path,
-        player_id="RL-Agent",
-        starting_money=starting_stack,
-        device=DEVICE,
-    )
-    print(f"✓ Model loaded")
+    model, global_step = load_rl_model(model_path, device)
+    print(f"✓ Model loaded (trained for {global_step:,} steps)")
     
-    # Create human player
+    # Create agents
     human = HumanPlayer(name="You", starting_chips=starting_stack)
+    rl_agent = RLAgent(
+        name="RL-Agent",
+        starting_chips=starting_stack,
+        model=model,
+        device=device,
+    )
     
     agents = [human, rl_agent]
     

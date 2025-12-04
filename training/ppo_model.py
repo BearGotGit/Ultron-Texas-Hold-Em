@@ -388,6 +388,41 @@ class PokerPPOModel(nn.Module):
         _, _, _, value = self.forward(obs)
         return value
 
+
+class RLPokerPlayer:
+    """
+    Wrapper to use PokerPPOModel as a PokerPlayer for self-play.
+    """
+    
+    def __init__(
+        self,
+        player_id: str,
+        model: PokerPPOModel,
+        device: torch.device = torch.device("cpu"),
+        deterministic: bool = False,
+    ):
+        self.id = player_id
+        self.model = model
+        self.device = device
+        self.deterministic = deterministic
+    
+    def get_action_from_obs(self, obs: torch.Tensor) -> Tuple[float, float]:
+        """
+        Get action from observation tensor.
+        
+        Returns:
+            (p_fold, bet_scalar) tuple
+        """
+        self.model.eval()
+        with torch.no_grad():
+            obs = obs.unsqueeze(0).to(self.device)  # (1, obs_dim)
+            action, _, _, _ = self.model.get_action_and_value(
+                obs, deterministic=self.deterministic
+            )
+            action = action.squeeze(0).cpu().numpy()
+        return float(action[0]), float(action[1])
+
+
 if __name__ == "__main__":
     # Test the model
     from simulation.poker_env import PokerEnv, PokerEnvConfig
