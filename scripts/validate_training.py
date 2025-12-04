@@ -4,7 +4,7 @@ Training Validation Script.
 
 Quick sanity check to verify the RL training pipeline is working:
 1. Saves initial model checkpoint
-2. Trains for 100 iterations
+2. Trains for 50 iterations
 3. Saves final checkpoint
 4. Compares weights to verify they changed
 5. Plays 10 hands against a random opponent to test the trained model
@@ -19,6 +19,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import Tuple
 
 import torch
 import numpy as np
@@ -38,7 +39,7 @@ def compare_model_weights(
     before_state: dict,
     after_state: dict,
     tolerance: float = 1e-6,
-) -> tuple[bool, float]:
+) -> Tuple[bool, float]:
     """
     Compare two model state dicts to check if weights have changed.
     
@@ -172,7 +173,7 @@ def main():
         
         # Train
         print()
-        print("3. Training for 100 iterations...")
+        print("3. Training for 50 iterations...")
         print("-" * 40)
         trainer.train(save_path="final_validation.pt")
         print("-" * 40)
