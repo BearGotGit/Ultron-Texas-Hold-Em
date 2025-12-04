@@ -3,14 +3,14 @@ Human player class for interactive Texas Hold'em poker.
 Allows a human to play against AI agents by prompting for decisions.
 """
 
-from .agent import PokerAgent
+from .poker_player import SimplePokerAgent
 from treys import Card
 
 
-class HumanPlayer(PokerAgent):
+class HumanPlayer(SimplePokerAgent):
     """
     Interactive human player that prompts for decisions via console input.
-    Inherits from PokerAgent and overrides the make_decision method.
+    Inherits from SimplePokerAgent and overrides the make_decision method.
     """
     
     def __init__(self, name="Human", starting_chips=1000):

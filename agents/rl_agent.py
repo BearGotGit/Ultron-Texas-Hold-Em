@@ -1,17 +1,17 @@
 """
 RL Agent wrapper for playing poker using trained PPO model.
-Inherits from PokerAgent to work with TexasHoldemSimulation.
+Inherits from SimplePokerAgent to work with TexasHoldemSimulation.
 """
 
 import torch
 import numpy as np
-from agents.agent import PokerAgent
+from agents.poker_player import SimplePokerAgent
 from simulation.poker_env import PokerEnv, PokerEnvConfig, interpret_action
 from agents.monte_carlo_agent import RandomAgent
 from training.ppo_model import PokerPPOModel
 
 
-class RLAgent(PokerAgent):
+class RLAgent(SimplePokerAgent):
     """
     RL agent that uses a trained PPO model to make poker decisions.
     """
@@ -113,7 +113,7 @@ class RLAgent(PokerAgent):
         
         # Update hero's state (player 0)
         hero = self.temp_env.players[0]
-        hero.hole_cards = self.hole_cards[:]
+        hero._private_cards = self.hole_cards[:]
         hero.money = self.chips
         hero.bet = self.current_bet
         hero.folded = self.is_folded
