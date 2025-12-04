@@ -253,27 +253,24 @@ class PPOTrainer:
         self.episode_lengths = []
     
     def _create_envs(self) -> List[PokerEnv]:
-        """Create parallel environments with opponent agents."""
+        """Create parallel environments with RandomAgent opponents."""
         envs = []
         
         for i in range(self.config.num_envs):
-            # Create opponents (Monte Carlo agents with varying parameters)
+            # Create opponents using RandomAgent (simpler, faster for training)
             opponents = []
             for j in range(1, self.config.num_players):
-                aggression = 0.3 + 0.4 * (j / self.config.num_players)
-                opponent = MonteCarloAgent(
+                opponent = RandomAgent(
                     player_id=f"Opponent-{i}-{j}",
                     starting_money=self.config.starting_stack,
-                    num_simulations=100,
-                    aggression=aggression,
                 )
                 opponents.append(opponent)
             
             # Create a placeholder for hero (will be controlled by training loop)
-            hero = MonteCarloAgent(
+            # Using RandomAgent as placeholder (actions are overridden by PPO model)
+            hero = RandomAgent(
                 player_id=f"Hero-{i}",
                 starting_money=self.config.starting_stack,
-                num_simulations=50,
             )
             
             players = [hero] + opponents
@@ -376,9 +373,23 @@ class PPOTrainer:
             "mean_length": np.mean(episode_lengths_batch) if episode_lengths_batch else 0.0,
         }
     
+    def _get_weight_stats(self) -> Dict[str, float]:
+        """Get statistics about model weights for debugging."""
+        stats = {}
+        total_norm = 0.0
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                param_norm = param.data.norm(2).item()
+                total_norm += param_norm ** 2
+        stats["weight_norm"] = total_norm ** 0.5
+        return stats
+    
     def _update_policy(self) -> Dict[str, float]:
         """Update policy using PPO."""
         self.model.train()
+        
+        # Track weight changes for debug logging
+        weight_stats_before = self._get_weight_stats()
         
         clip_losses = []
         value_losses = []
@@ -439,6 +450,10 @@ class PPOTrainer:
             if self.config.target_kl is not None and np.mean(kl_divs) > self.config.target_kl:
                 break
         
+        # Track weight changes for debug logging
+        weight_stats_after = self._get_weight_stats()
+        weight_change = abs(weight_stats_after["weight_norm"] - weight_stats_before["weight_norm"])
+        
         self.num_updates += 1
         
         return {
@@ -446,6 +461,8 @@ class PPOTrainer:
             "value_loss": np.mean(value_losses),
             "entropy": np.mean(entropy_losses),
             "kl_div": np.mean(kl_divs),
+            "weight_change": weight_change,
+            "weight_norm": weight_stats_after["weight_norm"],
         }
     
     def train(self, save_path: Optional[str] = None):
@@ -454,9 +471,21 @@ class PPOTrainer:
         print(f"Total timesteps: {self.config.total_timesteps:,}")
         print(f"Model parameters: {sum(p.numel() for p in self.model.parameters()):,}")
         
+        # Print opponent configuration for verification
+        env = self.envs[0]
+        print("\n--- OPPONENT CONFIGURATION ---")
+        for i, player in enumerate(env.players):
+            player_type = type(player).__name__
+            if i == env.hero_idx:
+                print(f"  Player {i} [HERO]: {player.id} (controlled by PPO model)")
+            else:
+                print(f"  Player {i} [OPPONENT]: {player.id} - Type: {player_type}")
+        print("---\n")
+        
         num_iterations = self.config.total_timesteps // (self.config.num_steps * self.config.num_envs)
         
         start_time = time.time()
+        initial_weight_norm = self._get_weight_stats()["weight_norm"]
         
         # Progress bar
         pbar = tqdm(range(1, num_iterations + 1), desc="Training", unit="iter")
@@ -480,6 +509,16 @@ class PPOTrainer:
                 elapsed = time.time() - start_time
                 fps = self.global_step / elapsed
                 
+                # Debug logging for weight changes
+                weight_change = update_stats.get("weight_change", 0.0)
+                weight_norm = update_stats.get("weight_norm", 0.0)
+                tqdm.write(
+                    f"[Iter {iteration}] pg_loss={update_stats['pg_loss']:.4f}, "
+                    f"value_loss={update_stats['value_loss']:.4f}, "
+                    f"weight_change={weight_change:.6f}, "
+                    f"weight_norm={weight_norm:.2f}"
+                )
+                
                 # TensorBoard logging
                 self.writer.add_scalar("rollout/mean_reward", rollout_stats["mean_reward"], self.global_step)
                 self.writer.add_scalar("rollout/mean_length", rollout_stats["mean_length"], self.global_step)
@@ -487,6 +526,8 @@ class PPOTrainer:
                 self.writer.add_scalar("losses/value_loss", update_stats["value_loss"], self.global_step)
                 self.writer.add_scalar("losses/entropy", update_stats["entropy"], self.global_step)
                 self.writer.add_scalar("losses/kl_div", update_stats["kl_div"], self.global_step)
+                self.writer.add_scalar("debug/weight_change", weight_change, self.global_step)
+                self.writer.add_scalar("debug/weight_norm", weight_norm, self.global_step)
                 self.writer.add_scalar("charts/fps", fps, self.global_step)
             
             # Save checkpoint
@@ -502,6 +543,19 @@ class PPOTrainer:
                 self.writer.add_scalar("eval/avg_profit", eval_stats["avg_profit"], self.global_step)
         
         pbar.close()
+        
+        # Final weight change summary
+        final_weight_norm = self._get_weight_stats()["weight_norm"]
+        total_weight_change = abs(final_weight_norm - initial_weight_norm)
+        print(f"\n--- TRAINING SUMMARY ---")
+        print(f"Initial weight norm: {initial_weight_norm:.4f}")
+        print(f"Final weight norm: {final_weight_norm:.4f}")
+        print(f"Total weight change: {total_weight_change:.4f}")
+        if total_weight_change > 0.001:
+            print("✓ Weights UPDATED during training")
+        else:
+            print("⚠️  WARNING: Weights did NOT change significantly!")
+        print("---\n")
         
         # Final save
         final_path = save_path or "final.pt"
