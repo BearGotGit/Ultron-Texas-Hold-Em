@@ -1,66 +1,32 @@
+import argparse
 import json
 import sys
 import threading
 import time
 # --- Fix for PPOConfig unpickling errors ---
 try:
-    # Import the module containing PPOConfig
-    from training.train_rl_model import PPOConfig
+    import training.train_rl_model as _train_module
     import __main__ as _main
-
-    # Make __main__.PPOConfig point to the real class
     if not hasattr(_main, "PPOConfig"):
-        _main.PPOConfig = PPOConfig
+        _main.PPOConfig = _train_module.PPOConfig
 except Exception:
     pass
 # ------------------------------------------
-
 try:
-    # Preferred import from websocket-client
     from websocket import WebSocketApp, WebSocketConnectionClosedException
 except Exception:
-    # Fallback: try importing the package as a module and pull attributes
-    try:
-        import websocket as _ws
-
-        WebSocketApp = getattr(_ws, "WebSocketApp", None)
-        WebSocketConnectionClosedException = getattr(
-            _ws, "WebSocketConnectionClosedException", None
-        )
-        # Some installations expose a generic WebSocketException
-        if WebSocketConnectionClosedException is None:
-            WebSocketConnectionClosedException = getattr(_ws, "WebSocketException", Exception)
-
-        if WebSocketApp is None:
-            raise ImportError("websocket package does not provide WebSocketApp")
-    except Exception as _e:
-        raise ImportError(
-            "websocket client library not found or incompatible. Please install 'websocket-client'"
-        ) from _e
-import ssl  # 👈 make sure this is imported
-from treys import Card
-from connect.adapters import to_treys_card, normalize_action, game_view_from_server
+    WebSocketApp = None
+    WebSocketConnectionClosedException = Exception
+import ssl
 from dotenv import load_dotenv
 import os
 import random
-from typing import Optional, Tuple, Any, Dict
+from typing import Optional, Tuple, Any, Dict, List
 from pathlib import Path
-import glob
-import os
 
-# Optional RL agent import (use canonical API)
-try:
-    from agents.rl_agent import RLAgent
-except Exception:
-    RLAgent = None
+from connect.adapters import to_treys_card, normalize_action, game_view_from_server
 
 load_dotenv()
-# Read env vars at import time but do not raise here; runtime checks happen in run_ws
-BASEURL = os.getenv("BASEURL")
-API_KEY = os.getenv("APIKEY")
-TABLE_ID = os.getenv("TABLEID")
-
-WS_URL_TEMPLATE = (BASEURL or "") + "/ws?apiKey={apiKey}&table={table}&player={player}"
 
 
 def safe_card_str(c: dict) -> str:
@@ -107,9 +73,9 @@ class RandomBot(BaseBot):
         # VERY dumb strategy, just to show the interface.
         # You can inspect game_view["state"] here for something smarter.
         choice = random.random()
-        if choice < 0.2:
+        if choice < 0.15:
             return "FOLD", 0
-        elif choice < 0.8:
+        elif choice < 0.85:
             return "CALL", 0
         else:
             amt = random.randint(1, self.max_raise)
@@ -124,9 +90,6 @@ class RLAgentAdapter(BaseBot):
     def __init__(self, rl_agent):
         self.rl_agent = rl_agent
 
-    def _to_treys_card(self, c):
-        return to_treys_card(c)
-
     def decide_action(self, game_view: Dict[str, Any]) -> Tuple[str, int]:
         state = game_view.get("state", {})
         table = game_view.get("table", {})
@@ -134,24 +97,27 @@ class RLAgentAdapter(BaseBot):
 
         # Convert hole cards and board to treys ints
         hole_cards_raw = self_player.get("cards") or self_player.get("hole_cards") or []
-        treys_hole = [to_treys_card(c) for c in hole_cards_raw]
+        try:
+            treys_hole = [to_treys_card(c) for c in hole_cards_raw]
+        except Exception:
+            treys_hole = []
 
         board_raw = state.get("board", [])
-        treys_board = [to_treys_card(c) for c in board_raw]
+        try:
+            treys_board = [to_treys_card(c) for c in board_raw]
+        except Exception:
+            treys_board = []
 
-        # Populate RLAgent internal state
         agent = self.rl_agent
-        agent.hole_cards = treys_hole
+        # populate minimal state the RLAgent expects
         try:
-            agent.chips = int(self_player.get("chips", agent.chips))
+            agent.hole_cards = treys_hole
+            agent.chips = int(self_player.get("chips", getattr(agent, "chips", 1000)))
+            agent.current_bet = int(self_player.get("bet", self_player.get("current_bet", getattr(agent, "current_bet", 0))))
+            agent.is_folded = bool(self_player.get("folded") or self_player.get("isFolded") or self_player.get("fold", False))
+            agent.is_all_in = bool(self_player.get("allIn") or self_player.get("isAllIn") or self_player.get("all_in", False))
         except Exception:
             pass
-        try:
-            agent.current_bet = int(self_player.get("bet", self_player.get("current_bet", agent.current_bet)))
-        except Exception:
-            pass
-        agent.is_folded = bool(self_player.get("folded") or self_player.get("isFolded") or self_player.get("fold", False))
-        agent.is_all_in = bool(self_player.get("allIn") or self_player.get("isAllIn") or self_player.get("all_in", False))
 
         # Compute to-call
         players = table.get("players") or []
@@ -167,9 +133,7 @@ class RLAgentAdapter(BaseBot):
         except Exception:
             return "CALL", 0
 
-        # Normalize action names to the CLI expected tokens
         act = (action or "").strip()
-        # normalize to server expected token (lower-case)
         act_norm = normalize_action(act)
         if act_norm != "raise":
             amount = 0
@@ -177,9 +141,23 @@ class RLAgentAdapter(BaseBot):
 
 
 class PlayerClient:
-    def __init__(self, player_id: str, bot: Optional[BaseBot] = None):
+    def __init__(
+        self,
+        player_id: str,
+        bot: Optional[BaseBot] = None,
+        baseurl: Optional[str] = None,
+        api_key: Optional[str] = None,
+        table_id: Optional[str] = None,
+        insecure_ssl: bool = True,
+    ):
         self.player_id = player_id
         self.bot = bot
+
+        # Connection parameters (CLI overrides env)
+        self.baseurl = baseurl or os.getenv("BASEURL")
+        self.api_key = api_key or os.getenv("APIKEY")
+        self.table_id = table_id or os.getenv("TABLEID")
+        self.insecure_ssl = insecure_ssl
 
         self.ws: Optional[Any] = None
         self.my_seat: Optional[int] = None
@@ -315,11 +293,13 @@ class PlayerClient:
 
     # ---- threads ----
     def run_ws(self):
-        url = WS_URL_TEMPLATE.format(
-            apiKey=API_KEY,
-            table=TABLE_ID,
-            player=self.player_id
-        )
+        # Build URL from provided values (CLI/env). Require baseurl/api_key/table.
+        if not self.baseurl or not self.api_key or not self.table_id:
+            print(f"[{self.player_id}] Missing connection parameters: BASEURL/APIKEY/TABLEID")
+            print("Set them via environment variables or CLI flags.")
+            return
+
+        url = f"{self.baseurl.rstrip('/')}" + f"/ws?apiKey={self.api_key}&table={self.table_id}&player={self.player_id}"
         print(f"[{self.player_id}] Connecting to {url}")
 
         self.ws = WebSocketApp(
@@ -330,10 +310,15 @@ class PlayerClient:
             on_message=self.on_message,
         )
 
-        # DEV ONLY: disable certificate verification so wss connect works
-        sslopt = {"cert_reqs": ssl.CERT_NONE}
+        # SSL options: allow disabling verification for dev, but prefer secure by default
+        sslopt = None
+        if self.insecure_ssl:
+            sslopt = {"cert_reqs": ssl.CERT_NONE}
 
-        self.ws.run_forever(sslopt=sslopt)
+        if sslopt is not None:
+            self.ws.run_forever(sslopt=sslopt)
+        else:
+            self.ws.run_forever()
 
     def run_input_loop(self):
         """
@@ -390,13 +375,11 @@ class PlayerClient:
         print(f"[{self.player_id}] client closed")
 
 
-def build_bot_from_args(args: list[str]) -> Optional[BaseBot]:
+def build_bot_from_args(args: List[str], model_checkpoint_env: Optional[str] = None) -> Optional[BaseBot]:
     """
-    Simple hook so people can choose a bot from the CLI.
-
-    Examples:
-        python3 player_cli.py p1           # human mode
-        python3 player_cli.py p1 randbot   # random bot example
+    Build a bot from CLI args. Supports:
+      - randbot / random
+      - rl [checkpoint]
     """
     if not args:
         return None
@@ -407,11 +390,14 @@ def build_bot_from_args(args: list[str]) -> Optional[BaseBot]:
 
     # RL bot: `rl [checkpoint_path]`
     if bot_name in ("rl", "rlbot"):
-        if RLAgent is None:
+        try:
+            from agents.rl_agent import RLAgent
+        except Exception:
             print("[main] RL agent support not available (agents.rl_agent import failed).")
             return None
 
-        # checkpoint may be provided as second arg, otherwise try env or default
+        cli_ckpt = args[1] if len(args) >= 2 else None
+
         def find_latest_checkpoint(candidate: Optional[str]) -> Optional[str]:
             if candidate:
                 p = Path(candidate)
@@ -422,7 +408,7 @@ def build_bot_from_args(args: list[str]) -> Optional[BaseBot]:
                 else:
                     search_dir = Path("checkpoints")
             else:
-                env_ckpt = os.getenv("MODEL_CHECKPOINT")
+                env_ckpt = model_checkpoint_env or os.getenv("MODEL_CHECKPOINT")
                 if env_ckpt:
                     p = Path(env_ckpt)
                     if p.is_file():
@@ -448,7 +434,6 @@ def build_bot_from_args(args: list[str]) -> Optional[BaseBot]:
             candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
             return str(candidates[0])
 
-        cli_ckpt = args[1] if len(args) >= 2 else None
         chosen = find_latest_checkpoint(cli_ckpt)
         if chosen is None:
             print("[main] No RL checkpoint found in CLI/ENV/checkpoints/. Running in human mode.")
@@ -456,46 +441,42 @@ def build_bot_from_args(args: list[str]) -> Optional[BaseBot]:
 
         print(f"[main] Using RL checkpoint: {chosen}")
         try:
-            # Load RLAgent using the canonical API
-            agent = RLAgent.from_checkpoint(
-                checkpoint_path=str(chosen),
-                player_id="Ultron",       # or the bot's name
-                starting_money=1000,      # must match server stack size
-            )
+            agent = RLAgent.from_checkpoint(checkpoint_path=str(chosen), player_id="Ultron", starting_money=1000)
             return RLAgentAdapter(agent)
         except Exception as e:
             print(f"[main] Failed to load RL agent: {e}")
             return None
 
-    # Extend here: elif bot_name == "mybot": return MyBot(...)
     print(f"[main] Unknown bot '{bot_name}', running in human mode.")
     return None
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage:")
-        print("  Human: python3 player_cli.py <playerId>")
-        print("  Bot:   python3 player_cli.py <playerId> randbot")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="WebSocket player client")
+    parser.add_argument("player_id", type=str, help="Player ID to join as")
+    parser.add_argument("bot", nargs="*", help="Optional bot args (e.g. randbot or 'rl [checkpoint]')")
+    parser.add_argument("--baseurl", type=str, default=os.getenv("BASEURL"), help="WebSocket base URL (wss://host)")
+    parser.add_argument("--apikey", type=str, default=os.getenv("APIKEY"), help="API key for server")
+    parser.add_argument("--table", type=str, default=os.getenv("TABLEID"), help="Table ID to join")
+    parser.add_argument("--model-checkpoint", type=str, default=os.getenv("MODEL_CHECKPOINT"), help="Checkpoint path or dir for RL bot")
+    parser.add_argument("--insecure-ssl", action="store_true", help="Disable SSL verification (dev-only)")
 
-    player_id = sys.argv[1]
-    extra_args = sys.argv[2:]
+    args = parser.parse_args()
 
-    bot = build_bot_from_args(extra_args)
-    client = PlayerClient(player_id, bot=bot)
+    player_id = args.player_id
+    bot = build_bot_from_args(args.bot or [], model_checkpoint_env=args.model_checkpoint)
 
-    t_ws = threading.Thread(target=client.run_ws)
+    client = PlayerClient(player_id, bot=bot, baseurl=args.baseurl, api_key=args.apikey, table_id=args.table, insecure_ssl=args.insecure_ssl)
+
+    t_ws = threading.Thread(target=client.run_ws, daemon=True)
     t_ws.start()
 
     # give ws a moment to connect
     time.sleep(1.0)
 
     if bot is None:
-        # Human interaction
         client.run_input_loop()
     else:
-        # Bot mode: just keep the main thread alive until Ctrl+C
         print(f"[{player_id}] Running in BOT mode. Press Ctrl+C to exit.")
         try:
             while True:
