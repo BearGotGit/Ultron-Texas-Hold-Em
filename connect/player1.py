@@ -10,6 +10,10 @@ import os
 import random
 from typing import Optional, Tuple, Any, Dict
 
+from bots.dina_base_bot import BaseBot
+
+from bots.simple import DinaBotWrapper, Simple
+
 load_dotenv()
 BASEURL = os.getenv("BASEURL")
 API_KEY = os.getenv("APIKEY")
@@ -38,24 +42,6 @@ def safe_card_str(c: dict) -> str:
 #  Bot interface + example
 # =========================
 
-class BaseBot:
-    """
-    Minimal bot interface.
-
-    Implement:
-        decide_action(self, game_view) -> (action: str, amount: int)
-
-    game_view is a dict with:
-        - "state": raw state from server
-        - "table": state["table"]
-        - "self_player": table["players"][my_seat]
-        - "my_seat": int
-    """
-
-    def decide_action(self, game_view: Dict[str, Any]) -> Tuple[str, int]:
-        raise NotImplementedError
-
-
 class RandomBot(BaseBot):
     """
     Example bot:
@@ -72,7 +58,6 @@ class RandomBot(BaseBot):
         # You can inspect game_view["state"] here for something smarter.
         
         
-        # pprint("\n\n\nGame view:\n", game_view, "\n\n\n")
         
         choice = random.random()
         if choice < 0.2:
@@ -118,8 +103,9 @@ class PlayerClient:
         if data.get("type") != "state":
             print(f"[{self.player_id}] msg:", data)
             return
-
-        pprint(f"\n\n\n: {data} \n\n\n")
+        
+        print("Data:\n")
+        pprint(data)
 
         state = data["state"]
         table = state["table"]
@@ -274,9 +260,9 @@ class PlayerClient:
                 to_act_idx = self.to_act_idx
                 phase = self.phase
 
-            if phase in ("WAITING", "SHOWDOWN") or my_seat is None or to_act_idx != my_seat:
-                print(f"[{self.player_id}] Not your turn right now.")
-                continue
+            # if phase in ("WAITING", "SHOWDOWN") or my_seat is None or to_act_idx != my_seat:
+            #     print(f"[{self.player_id}] Not your turn right now.")
+            #     continue
 
             parts = cmd.split()
             code = parts[0].lower()
@@ -312,8 +298,13 @@ def build_bot_from_args(args: list[str]) -> Optional[BaseBot]:
         return None
 
     bot_name = args[0].lower()
-    if bot_name == "randbot" or bot_name == "random":
+    print(bot_name)
+
+    if bot_name == "random":
         return RandomBot()
+    elif bot_name == "simple":
+        return DinaBotWrapper(Simple())
+     
     # Extend here: elif bot_name == "mybot": return MyBot(...)
     print(f"[main] Unknown bot '{bot_name}', running in human mode.")
     return None
@@ -328,8 +319,11 @@ def main():
 
     player_id = sys.argv[1]
     extra_args = sys.argv[2:]
+    print(extra_args)
 
     bot = build_bot_from_args(extra_args)
+    print("Bot: ", bot)
+
     client = PlayerClient(player_id, bot=bot)
 
     t_ws = threading.Thread(target=client.run_ws)
