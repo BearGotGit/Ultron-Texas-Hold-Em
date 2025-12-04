@@ -380,6 +380,10 @@ class RandomAgent(PokerPlayer):
     """
     Simple random agent for testing.
     Makes random decisions with configurable fold probability.
+    
+    Special case: When fold_prob=0 and raise_prob=0, this agent becomes
+    a "call station" that always calls or checks but never folds or raises.
+    Use the factory method `call_station()` to create such an agent.
     """
     
     def __init__(
@@ -392,6 +396,23 @@ class RandomAgent(PokerPlayer):
         super().__init__(player_id, starting_money)
         self.fold_prob = fold_prob
         self.raise_prob = raise_prob
+    
+    @classmethod
+    def call_station(cls, player_id: str, money: int = 1000) -> "RandomAgent":
+        """
+        Factory method to create a call station agent.
+        
+        A call station is an agent that always calls (never folds, never raises).
+        Useful as a baseline opponent.
+        
+        Args:
+            player_id: Unique identifier
+            money: Starting chip stack
+            
+        Returns:
+            RandomAgent configured to always call/check
+        """
+        return cls(player_id, starting_money=money, fold_prob=0.0, raise_prob=0.0)
     
     def get_action(
         self,
@@ -427,37 +448,6 @@ class RandomAgent(PokerPlayer):
             return PokerAction.call(min(to_call, my_info.money))
 
 
-class CallStationAgent(PokerPlayer):
-    """
-    Agent that always calls (never folds, never raises).
-    Useful as a baseline opponent.
-    """
-    
-    def __init__(self, player_id: str, starting_money: int = 1000):
-        super().__init__(player_id, starting_money)
-    
-    def get_action(
-        self,
-        hole_cards: List[int],
-        board: List[int],
-        pot: int,
-        current_bet: int,
-        min_raise: int,
-        players: List[PokerPlayerPublic],
-        my_idx: int,
-    ) -> PokerAction:
-        my_info = players[my_idx]
-        to_call = current_bet - my_info.bet
-        
-        if my_info.folded or my_info.all_in:
-            return PokerAction.check()
-        
-        if to_call <= 0:
-            return PokerAction.check()
-        
-        return PokerAction.call(min(to_call, my_info.money))
-
-
 if __name__ == "__main__":
     # Test the agents
     from treys import Deck
@@ -467,7 +457,7 @@ if __name__ == "__main__":
     # Create agents
     mca = MonteCarloAgent("MCA-1", starting_money=1000, num_simulations=100)
     random_agent = RandomAgent("Random-1")
-    call_station = CallStationAgent("CallStation-1")
+    call_station = RandomAgent.call_station("CallStation-1")
     
     # Create test scenario
     deck = Deck()
